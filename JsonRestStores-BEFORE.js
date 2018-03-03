@@ -19,9 +19,21 @@ NOTE. When creating a store, you can take the following shortcuts:
 
 var e = require('allhttperrors')
 var SimpleDbLayerMixin = require('./SimpleDbLayerMixin.js')
+var HTTPMixin = require('./HTTPMixin.js')
 var path = require('path')
 var DO = require('deepobject')
+var marked = require('marked')
 var { asyncForEach, asyncMap } = require('p-iterator')
+
+marked.setOptions({
+  gfm: true,
+  tables: true,
+  breaks: false,
+  pedantic: false,
+  sanitize: true,
+  smartLists: true,
+  smartypants: false
+})
 
 var _co = function (o) {
   var newO = {}
@@ -39,15 +51,17 @@ var Store = class {
 
   static get storeName () { return null }
   static get schema () { return null }
+  static get nested () { return [] }
+  static get autoLookup () { return {} }
   static get _singleFields () { return {} } // Fields that can be updated singularly
-
-  static get artificialDelay () { return 0 }
+  static get _uniqueFields () { return {} } // Fields that absolutely must be unique
 
   // ****************************************************
   // *** ATTRIBUTES THAT CAN TO BE DEFINED IN PROTOTYPE
   // ****************************************************
 
   static get onlineSearchSchema () { return null } // If not set in prototype, worked out from `schema` by constructor
+  static get queryConditions () { return null } // If not set in prototype, worked out from `schema` by constructor
   static get sortableFields () { return [] }
   static get publicURLprefix () { return null }
   static get publicURL () { return null } // Not mandatory (if you want your store to be API-only for some reason)
@@ -69,6 +83,12 @@ var Store = class {
   static get echoAfterDelete () { return true }
 
   static get chainErrors () { return 'none' }  // can be 'none' (do not chain), 'all' (chain all), 'nonhttp' (chain non-HTTP errors)
+
+  static get deleteAfterGetQuery () { return false } // Delete records after fetching them
+
+  static get strictSchemaOnFetch () { return false }
+
+  // failWithProtectedFields: false,
 
   static get position () { return false }    // If set, will make fields re-positionable
   static get defaultSort () { return null }  // If set, it will be applied to all getQuery calls
@@ -108,7 +128,13 @@ var Store = class {
   // *** FUNCTIONS THAT CAN BE OVERRIDDEN BY DEVELOPERS
   // ****************************************************
 
-  // Permission stock function
+  // Doc extrapolation and preparation calls
+  async prepareBody (request, method, body) { return body }
+  async extrapolateDoc (request, method, doc) { return doc }
+  async prepareBeforeSend (request, method, doc) { return doc }
+  async manipulateQueryConditions (request, method) { }
+
+  // Permission stock functions
   async checkPermissions (request, method, cb) { return true }
 
   // after* functions
@@ -127,6 +153,9 @@ var Store = class {
     }
   }
 
+  // Run when JsonRestStores.init() is run
+  init () { }
+
   // **************************************************************************
   // *** END OF FUNCTIONS/ATTRIBUTES THAT NEED/CAN BE OVERRIDDEN BY DEVELOPERS
   // **************************************************************************
@@ -136,22 +165,24 @@ var Store = class {
     var k
 
     // Set artificialDelay from the constructor's default
-    if (typeof (registry[ Store.storeName ]) !== 'undefined') {
+    this.artificialDelay = this.constructor.artificialDelay
+
+    if (typeof (Store.registry[ self.storeName ]) !== 'undefined') {
       throw new Error('Cannot instantiate two stores with the same name: ' + self.storeName)
     }
 
     // The store name must be defined
-    if (Store.storeName === null) {
+    if (self.storeName === null) {
       throw (new Error('You must define a store name for a store in constructor class'))
     }
 
     // The schema must be defined
-    if (Store.schema == null) {
+    if (self.schema == null) {
       throw (new Error('You must define a schema'))
     }
 
     // If paramId is not specified, takes it from publicURL
-    if (Store.paramIds.length === 0 && typeof (Store.publicURL) === 'string') {
+    if (self.paramIds.length === 0 && typeof (self.publicURL) === 'string') {
       self.paramIds = (self.publicURL + '/').match(/:.*?\/+/g).map(
         function (i) {
           return i.substr(1, i.length - 2)
@@ -160,23 +191,23 @@ var Store = class {
     }
 
     // If idProperty is not set, derive it from self._lastParamId()
-    if (!Store.idProperty) {
-      if (Store.paramIds.length === 0) {
+    if (!self.idProperty) {
+      if (self.paramIds.length === 0) {
         throw (new Error('Your store needs to set idProperty, or alternatively set paramIds (idProperty will be the last paramId). Store: ' + self.storeName))
       }
 
       // Sets self.idProperty, which (as for the principle of
       // least surprise) must be the last paramId passed to
       // the store.
-      Store.idProperty = self._lastParamId()
+      self.idProperty = self._lastParamId()
     }
 
     // By default, paramIds are set in schema as { type: 'id' } so that developers
     // can be lazy when defining their schemas
-    for (var i = 0, l = Store.paramIds.length; i < l; i++) {
-      k = Store.paramIds[ i ]
-      if (typeof (Store.schema.structure[ k ]) === 'undefined') {
-        Store.schema.structure[ k ] = { type: 'id' }
+    for (var i = 0, l = self.paramIds.length; i < l; i++) {
+      k = self.paramIds[ i ]
+      if (typeof (self.schema.structure[ k ]) === 'undefined') {
+        self.schema.structure[ k ] = { type: 'id' }
       }
     }
 
@@ -192,6 +223,22 @@ var Store = class {
       self.onlineSearchSchema = new self.schema.constructor(onlineSearchSchemaStructure)
     }
 
+    // If queryConditions is not defined, create one
+    // based on the onlineSearchSchema (each field is searchable)
+    if (self.queryConditions == null) {
+      // If onlineSearchSchema only has 1 element, there is no point in having an 'and'
+      var keys = Object.keys(self.onlineSearchSchema.structure)
+      if (keys.length === 1) {
+        k = keys[ 0 ]
+        self.queryConditions = { type: 'eq', args: [ k, '#' + k + '#' ] }
+      } else {
+        self.queryConditions = { type: 'and', args: [ ] }
+        for (k in self.onlineSearchSchema.structure) {
+          self.queryConditions.args.push({ type: 'eq', args: [ k, '#' + k + '#' ] })
+        }
+      }
+    }
+
     self._singleFields = {}
     for (k in self.schema.structure) {
       if (self.schema.structure[ k ].singleField) {
@@ -199,7 +246,14 @@ var Store = class {
       }
     }
 
-    registry[ self.storeName ] = self
+    self._uniqueFields = {}
+    for (k in self.schema.structure) {
+      if (self.schema.structure[ k ].unique) {
+        self._uniqueFields[ k ] = self.schema.structure[ k ]
+      }
+    }
+
+    Store.registry[ self.storeName ] = self
   }
 
   // Simple function that shallow-copies an object. This should be used
@@ -207,6 +261,92 @@ var Store = class {
   // overridden (in order to pass a copy of the object)
   static get _co () { return _co }
 
+  // This will call either `extrapolateDoc` or `prepareBeforeSend` (depending on
+  // the `funcName` parameter) on the document itself, _and_ on any nested documents
+  // in the record itself.
+  // Note that `extrapolateDoc` and `prepareBeforeSend` have identical signatures
+  async _genericProcessProxy (funcName, request, method, doc) {
+    var self = this
+
+    var processedDoc = await self[ funcName ](request, method, doc)
+
+    // No nested table: go home!
+    if (self.nested.length === 0) return processedDoc
+
+    await asyncForEach(self.nested, async n => {
+      var store = n.store
+      var k
+
+      switch (n.type) {
+        case 'multiple':
+
+          // The key will depend on the store's table's name or prop
+          k = n.prop || store.dbLayer.table
+
+          // Not an array: not interested!
+          var a = processedDoc._children && processedDoc._children[ k ]
+          if (!Array.isArray(a) || !a.length) return
+
+          a = await asyncMap(a, async item => {
+            var requestCopy = self._co(request)
+            requestCopy.nested = true
+            var newItem = await store[ funcName ](store, requestCopy, method, item)
+            return newItem
+          })
+
+          // Delete all empty objects.
+          processedDoc._children[ k ] = a.filter((i) => {
+            return Object.keys(i).length !== 0
+          })
+
+          return
+
+        case 'lookup':
+
+          // The key will depend on the localField or `prop`
+          k = n.prop || n.localField
+
+          // Not an object: not interested!
+          var o = processedDoc._children && processedDoc._children[ k ]
+          if (typeof o === 'undefined') return
+
+          var requestCopy = self._co(request)
+          requestCopy.nested = true
+
+          processedDoc._children[ k ] = await store[ funcName ](requestCopy, method, o)
+      } // End of switch
+    })
+    return processedDoc
+  }
+
+  async extrapolateDocProxy (request, method, fullDoc) {
+    return this._genericProcessProxy('extrapolateDoc', request, method, fullDoc)
+  }
+
+  async prepareBeforeSendProxy (request, method, doc) {
+    return this._genericProcessProxy('prepareBeforeSend', request, method, doc)
+  }
+
+  async _doAutoLookup (request, method, done) {
+    var self = this
+    request.lookup = {}
+    await asyncForEach.each(Object.keys(self.autoLookup), async (id) => {
+      var storeName = self.autoLookup[ id ]
+      var store = Store.getStore(storeName)
+
+      // The parameter is not in the request (as in parameters, body or conditionsHash), nothing to do.
+      var v = request.params[ id ] || request.body[ id ] || (request.options.conditionsHash && request.options.conditionsHash[ id ])
+      if (!v) return
+
+      var q = {}
+      q[ store.idProperty ] = v
+
+      var { docs, total } = await store.dbLayer.selectByHash(q)
+      if (total === 0) throw self.NotFoundError('Not found: ' + id)
+
+      request.lookup[ id ] = docs[ 0 ]
+    })
+  }
 
   // Will call implementReposition based on options.
   // -putBefore is an id.
@@ -243,6 +383,209 @@ var Store = class {
     return path.join(this.publicURLPrefix, this.publicURL)
   }
 
+  // This function is self-contained so that it can be easily checked
+  // and debugged.
+  _resolveQueryConditions (queryConditions, conditionsHash, allowedFields, request) {
+    var self = this
+
+    // Copy over conditionsHash and allowedFields so that they don't get polluted
+    // since things will possibly get added here
+    conditionsHash = JSON.parse(JSON.stringify(conditionsHash))
+    allowedFields = JSON.parse(JSON.stringify(allowedFields))
+
+    // Entry point for recursive function
+    // Note `o` will be copied over a pre-allocated `fc`
+    function visitQueryConditions (o, fc) {
+      // Copy o.args over to fc.args, running `visitQueryConditions` for each item,
+      // and checking that `and`,`or` and `each` have at least 2 conditions (if not,
+      // the first and only arg will become the item, no conditions)
+      function goThroughArgs () {
+        o.args.forEach(function (queryCondition) {
+          // Make space for the new condition which will (hopefully) get pushed
+          var newQueryCondition = {}
+
+          // Get the result from the query conditions
+          var f = visitQueryConditions(queryCondition, newQueryCondition)
+
+          // A false return means not to add the condition. The `return`
+          // will interrupt the cycle, the condition will not get pushed
+          if (f === false) return
+
+          // At this point newCondition might be a `and` or `or` with
+          // wrong number of arguments (zero or 1). In that case,
+          // it will get zapped
+
+          // If it's 'and' or 'or', check the length of what gets returned
+          if (queryCondition.type === 'and' || queryCondition.type === 'or' || queryCondition.type === 'each') {
+            // newCondition is empty: do not add anything to fc
+            // This can happen if ifDefined weren't satisfied
+            if (newQueryCondition.args.length === 0) {
+              return // eslint-disable-line
+
+            // Only one condition returned: get rid of logical operator, add the straight condition
+            } else if (newQueryCondition.args.length === 1) {
+              var $qc = newQueryCondition.args[ 0 ]
+              var $toPush = {}
+              for (var kk in $qc) $toPush[ kk ] = $qc[ kk ]
+              fc.args.push($toPush)
+              // fc.args.push( { type: actualQueryCondition.type, args: actualQueryCondition.args } );
+
+            // Multiple queryConditions returned: the logical operator makes sense
+            } else {
+              fc.args.push(newQueryCondition)
+            }
+
+          // If it's a leaf
+          } else {
+            fc.args.push(newQueryCondition)
+          }
+        })
+      }
+
+      // Check o.ifDefined. If the corresponding element in conditionsHash
+      // is not defined, won't go there
+      // Note: ifDefined can be a list of comma-separated fields
+      if (o.ifDefined && typeof (o.ifDefined) === 'string') {
+        if (!o.ifDefined.split(',').every(function (s) { return typeof conditionsHash[ s ] !== 'undefined' })) {
+          return false
+        }
+      }
+
+      // Check o.ifNotDefined. If the corresponding element in conditionsHash
+      // is not defined, won't go there
+      // Note: ifNotDefined can be a list of comma-separated fields
+      if (o.ifNotDefined && typeof (o.ifNotDefined) === 'string') {
+        if (!o.ifNotDefined.split(',').every(function (s) { return typeof conditionsHash[ s ] === 'undefined' })) {
+          return false
+        }
+      }
+
+      // Check o.if. Will run the function, and stop exploring if it returns false
+      if (o.if && typeof (o.if) === 'function') {
+        if (!o.if.call(self, request)) return false
+      }
+
+      // If it's `and` or `or`, will go through o.args one after the other
+      // and (possibly) add them to fc's args
+      if (o.type === 'and' || o.type === 'or') {
+        for (let kk in o) {
+          if (kk !== 'args' && kk !== 'type') { fc[ kk ] = o[ kk ] }
+        }
+        fc.type = o.type
+        fc.args = []
+
+        goThroughArgs()
+
+      // If it' `each`, it will still go through `o.args` but N times,
+      // once for each word found in value (and split with the separator)
+      } else if (o.type === 'each') {
+        for (let kk in o) {
+          if (kk !== 'args' && kk !== 'type') fc[ kk ] = o[ kk ]
+        }
+        fc.type = o.type
+        fc.args = []
+
+         // Link type defaults to "and"
+        fc.type = o.linkType || 'and'
+
+        // If the field is not in the conditionsHash, there is no
+        // point in doing this
+        if (!conditionsHash[ o.value ]) return
+
+        // Separator defaults to ' '
+        var allValues = conditionsHash[ o.value ].split(o.separator || ' ')
+
+        allValues.forEach(function (value) {
+          // Assign the right value to conditionsHash and allowedFields so that
+          // referencing to #something# will work
+
+          // "as" defaults to value+'Each'
+          var k = o.as || o.value + 'Each'
+          conditionsHash[ k ] = value
+          allowedFields[ k ] = true
+
+          goThroughArgs()
+        })
+
+      // It's not `and`, `or` nor `each`: it will NOT go through its
+      // args recursively, since it's an end point. However,
+      // the second argument might be resolved by conditionsHash
+      // if it's in the right #format#
+      } else {
+        var arg0 = o.args[ 0 ]
+        var arg1 = o.args[ 1 ]
+
+        // No arg1: most likely a unary operator, let it live.
+        if (typeof (arg1) === 'undefined') {
+          fc.type = o.type
+          fc.args = []
+
+          fc.args[ 0 ] = arg0
+
+        // Two arguments. The second one must be resolved if it's
+        // in the right #format#
+        } else {
+          var sourceArgs = Array.isArray(arg1) ? arg1 : [ arg1 ]
+          var resultArgs = []
+
+          for (var i = 0, l = sourceArgs.length; i < l; i++) {
+            var arg = sourceArgs[ i ]
+            var m = (arg.match && arg.match(/^#(.*?)#$/))
+            if (m) {
+              var osf = m[ 1 ]
+
+              // If it's in form #something#, then entry MUST be in allowedFields
+              if (!allowedFields[ osf ]) throw new Error('Searched for ' + arg + ", but didn't find corresponding entry in onlineSearchSchema")
+
+              if (typeof conditionsHash[ osf ] !== 'undefined') {
+                resultArgs.push(conditionsHash[ osf ])
+              } else {
+                // It will get dropped since the required variable is not set
+                return false
+              }
+
+            // The second argument is not in form #something#: it means it's a STRAIGHT value
+            } else {
+              resultArgs.push(arg)
+            }
+          }
+
+          fc.type = o.type
+          fc.args = [ arg0, Array.isArray(arg1) ? resultArgs : resultArgs[ 0 ] ]
+        }
+      }
+    }
+
+    // Function starts here
+    var res = {}
+    visitQueryConditions(queryConditions, res)
+
+    // visitQueryConditions does a great job avoiding duplication, but
+    // top-level duplication needs to be checked here
+    if ((res.type === 'and' || res.type === 'or')) {
+      if (res.args.length === 0) return {}
+      if (res.args.length === 1) return res.args[ 0 ]
+    }
+    // console.log("RESULT:", require('util').inspect(res, { depth: 10 } ) );
+    return res
+  }
+
+  async _extrapolateDocProxyAndprepareBeforeSendProxyAll (request, method, fullDocs) {
+    var self = this
+
+    var docs = []
+    var preparedDocs = []
+
+    await asyncForEach(fullDocs, async (fullDoc) => {
+      var doc = await self.extrapolateDocProxy(request, method, fullDoc)
+      docs.push(doc)
+
+      var preparedDoc = await self.prepareBeforeSendProxy(request, method, doc)
+      preparedDocs.push(preparedDoc)
+    })
+
+    return { docs, preparedDocs }
+  }
 
   _lastParamId () {
     return this.paramIds[ this.paramIds.length - 1 ]
@@ -1269,3 +1612,301 @@ Store.registry = {}
 // without an extra require (they are VERY common)
 Store.SimpleDbLayerMixin = SimpleDbLayerMixin
 Store.HTTPMixin = HTTPMixin
+
+Store.document = function (s) {
+  // This MUST be set
+  if (!s.getFullPublicURL) s.getFullPublicURL = Store.prototype.getFullPublicURL
+
+  function f (path) {
+    var scope = this
+    var p
+    var key = path.split('.')[0]
+
+    // Step 1: find the scope DIRECTLY associated to the value
+    // At the end of this, `p` is the right scope.
+    // I do this because this could be in the object directly, or the proto
+
+    // Search for the value
+    p = { __proto__: scope }
+    while ((p = p.__proto__)) {
+      if (p.hasOwnProperty(key)) break
+    }
+
+    // This shouldn't really happen
+    if (!p) {
+      // return "[[Could not find '" + path + "' in current scope]]";
+      return ''
+    }
+
+    // Step 2: get the value from the path,  and work the string a little,
+    // take newlines out etc.
+
+    // Get value from path
+    var str = DO.get(p, path)
+    if (typeof (str) === 'undefined') str = '' // This is in case p[k] exist, but a sub-key was references
+    if (typeof (str) !== 'string') return `[[Index ${key} exists, but ${path} is not a string, it is ${to} ]]`
+
+    // Fix up string
+    str = str.replace(/^[\n\r]/, '')
+    var spaces = str.match(/^\s*/m)
+    var regexp = new RegExp('^' + spaces, 'gm')
+    str = str.replace(regexp, '')
+
+    // Turn to markdown
+    // str = marked( str ); // MD DELETED
+
+    // Step 3: Resolve {{something}} into the corresponding value in the parent's prototype
+
+    // Search for {{something}} in the string, and for each instance, se
+    str = str.replace(/\{\{(.*?)\}\}/g, (match, path) => {
+      var q = p
+      while ((q = q.__proto__)) {
+        if (q.hasOwnProperty(key)) return f.call(q, path)
+      }
+      return '[[Unable to lookup in prototype: ' + match + ']]'
+    })
+
+    return str
+  }
+
+  function callAll (s, method, rn) {
+    var l = []
+
+    p = { __proto__: s }
+    while ((p = p.__proto__)) {
+      if (p.hasOwnProperty(method) && typeof (p[ method] === 'function')) l.unshift(p[ method ])
+    }
+    l.forEach(m => {
+      m.call(s, s, rn)
+    })
+  }
+
+  var rn = {}
+  var storeName = rn.storeName = s.storeName
+
+  if (s['main-doc']) rn['main-doc'] = f.call(s, 'main-doc')
+
+  // Get backend info (if backend is present)
+  rn.backEnd = {}
+  if (s.dbLayer) {
+    rn.backEnd.collectionName = s.collectionName
+    rn.backEnd.hardLimitOnQueries = s.hardLimitOnQueries
+  }
+
+  // Look for derivative stores
+  var parents = []
+  proto = s.__proto__
+  while ((proto = proto.__proto__)) {
+    if (proto.hasOwnProperty('storeName') && proto.storeName) parents.push(proto.storeName)
+  }
+  if (parents.length) rn.parents = parents
+
+  if (s._singleFields && Object.keys(s._singleFields).length) rn.singleFields = s._singleFields
+  else rn.singleFields = {}
+
+  rn.strictSchemaOnFetch = !!s.strictSchemaOnFetch
+
+  rn.nested = []
+  if (s.nested && s.nested.length) {
+    nested = rn.nested = []
+
+    s.nested.forEach(function (entry) {
+      var line = {}
+      line.type = entry.type
+      var foreignStore = entry.store.storeName
+      line.foreignStoreData = '_children.' + foreignStore
+      line.foreignStore = foreignStore
+      line.conditions = []
+
+      if (entry.type == 'lookup') {
+        line.conditions.push({
+          foreignProperty: foreignStore + '.' + entry.store.idProperty,
+          localProperty: storeName + '.' + entry.localField
+        })
+      } else {
+        Object.keys(entry.join).forEach(function (joinField) {
+          line.conditions.push({
+            foreignProperty: foreignStore + '.' + joinField,
+            localProperty: storeName + '.' + entry.join[ joinField ]
+          })
+        })
+      }
+      nested.push(line)
+    })
+  }
+
+  rn.position = !!s.position
+  if (s[ 'item-doc']) rn['item-doc'] = f.call(s, 'item-doc')
+  if (s[ 'schema-doc']) rn['schema-doc'] = f.call(s, 'schema-doc')
+
+  rn.paramIds = s.paramIds
+
+  if (s.schema) {
+    // Copy over the schema, taking out the docs parts
+    rn.schema = _co(s.schema.structure)
+    if (s['schema-extras-doc']) {
+      for (var k in s['schema-extras-doc']) {
+        rn.schema[ k ] = s['schema-extras-doc'][ k ]
+        rn.schema[ k ].computed = true
+      }
+    }
+  } else {
+    rn.schema = {}
+  }
+
+  if (s.getFullPublicURL) rn.fullPublicURL = s.getFullPublicURL()
+
+  // Go through each method, document each one based on the store itself
+  rn.methods = {}
+
+  rn.HTTPresponses = {
+    // OK                      : { status: 200, data: s['item-return-doc'], contentType: 'application/json', doc: `where item1, item2 are the full items` },
+    NotImplementedError: { status: 501, data: s['error-format-doc'], contentType: 'application/json', doc: "The method requested isn't implemented" },
+    UnauthorizedError: { status: 401, data: s['error-format-doc'], contentType: 'application/json', doc: 'Authentication is necessary before accessing this resource' },
+    ForbiddenError: { status: 403, data: s['error-format-doc'], contentType: 'application/json', doc: 'Access to the resource was forbidden' },
+    BadRequestError: { status: 400, data: s['error-format-doc'], contentType: 'application/json', doc: 'Some IDs in the URL are in the wrong format' },
+    ServiceUnavailableError: { status: 503, data: s['error-format-doc'], contentType: 'application/json', doc: 'An unexpected error happened'},
+    UnprocessableEntityError: { status: 422, data: s['error-format-doc'], contentType: 'application/json', doc: 'One of the parameters in the body has errors' }
+  };
+
+  [ 'getQuery', 'get', 'put', 'post', 'delete'].forEach(function (method) {
+    switch (method) {
+
+      case 'getQuery':
+        if (!s.handleGetQuery) break
+        var rnm = rn.methods[ method ] = {}
+        if (s.publicURL) rnm.url = s.getFullPublicURL().replace(/\/:\w*$/, '')
+        if (s.onlineSearchSchema) {
+          rnm.onlineSearchSchema = s._co(s.onlineSearchSchema.structure)
+        }
+        if (s[ 'search-doc']) rnm['search-doc'] = f.call(s, 'search-doc')
+        if (s[ 'sortableFields']) rnm.sortableFields = s[ 'sortableFields']
+        if (s[ 'defaultSort']) rnm.defaultSort = s[ 'defaultSort']
+        rnm.deleteFetchedRecords = !!s[ 'deleteAfterGetQuery' ]
+        rnm.permissions = f.call(s, 'permissions-doc.getQuery')
+
+        rnm.HTTPresponses = {
+          OK: { status: 200, data: '[ ...item... , ...item... ]', contentType: 'application/json', doc: 'The items as an array' },
+          ServiceUnavailableError: rn.HTTPresponses.ServiceUnavailableError
+        }
+        if (!s[ 'disable-authresponses-doc']) {
+          rnm.HTTPresponses.UnauthorizedError = rn.HTTPresponses.UnauthorizedError
+          rnm.HTTPresponses.ForbiddenError = rn.HTTPresponses.ForbiddenError
+        }
+        if (s.paramIds.length != 1) {
+          rnm.HTTPresponses.BadRequestError = rn.HTTPresponses.BadRequestError
+        }
+
+        break
+
+      case 'get':
+        if (!s.handleGet && (!s._singleFields || !Object.keys(s._singleFields).length)) break
+        var rnm = rn.methods[ method ] = {}
+        if (s.publicURL) rnm.url = s.getFullPublicURL()
+        if (!s.handleGet) rnm.onlySingleFields = true
+        rnm.permissions = f.call(s, 'permissions-doc.get')
+
+        rnm.HTTPresponses = {
+          OK: { status: 200, data: '{ ...item... }', contentType: 'application/json', doc: 'The item as stored on the server' },
+          ServiceUnavailableError: rn.HTTPresponses.ServiceUnavailableError
+        }
+        if (!s[ 'disable-authresponses-doc']) {
+          rnm.HTTPresponses.UnauthorizedError = rn.HTTPresponses.UnauthorizedError
+          rnm.HTTPresponses.ForbiddenError = rn.HTTPresponses.ForbiddenError
+        }
+        if (s.paramIds.length != 1) {
+          rnm.HTTPresponses.BadRequestError = rn.HTTPresponses.BadRequestError
+        }
+
+        break
+
+      case 'put':
+        if (!s.handlePut && (!s._singleFields || !Object.keys(s._singleFields).length)) break
+        var rnm = rn.methods[ method ] = {}
+        if (!s.handlePut) rnm.onlySingleFields = true
+        if (s.publicURL) rnm.url = s.getFullPublicURL()
+        rnm.permissions = f.call(s, 'permissions-doc.put')
+        rnm.echo = !!s.echoAfterPut
+
+        var i = s.echoAfterPut ? '{ ...item... }' : ''
+        var d = s.echoAfterPut ? 'The item as stored on the server' : 'Nothing (echo is off)'
+        rnm.HTTPresponses = {
+          OK: { status: 200, data: i, contentType: 'application/json', doc: d },
+          ServiceUnavailableError: rn.HTTPresponses.ServiceUnavailableError
+        }
+        if (!s[ 'disable-authresponses-doc']) {
+          rnm.HTTPresponses.UnauthorizedError = rn.HTTPresponses.UnauthorizedError
+          rnm.HTTPresponses.ForbiddenError = rn.HTTPresponses.ForbiddenError
+          rnm.HTTPresponses.UnprocessableEntityError = rn.HTTPresponses.UnprocessableEntityError
+          rnm.HTTPresponses.BadRequestError = rn.HTTPresponses.BadRequestError
+        }
+        break
+
+      case 'post':
+        if (!s.handlePost) break
+        var rnm = rn.methods[ method ] = {}
+        if (s.publicURL) rnm.url = s.getFullPublicURL().replace(/\/:\w*$/, '')
+
+        rnm.permissions = f.call(s, 'permissions-doc.post')
+        rnm.echo = !!s.echoAfterPost
+
+        var i = s.echoAfterPost ? '{ ...item... }' : ''
+        var d = s.echoAfterPost ? 'The item as stored on the server' : 'Nothing (echo is off)'
+        rnm.HTTPresponses = {
+          OK: { status: 200, data: i, contentType: 'application/json', doc: d },
+          ServiceUnavailableError: rn.HTTPresponses.ServiceUnavailableError
+        }
+        if (!s[ 'disable-authresponses-doc']) {
+          rnm.HTTPresponses.UnauthorizedError = rn.HTTPresponses.UnauthorizedError
+          rnm.HTTPresponses.ForbiddenError = rn.HTTPresponses.ForbiddenError
+          rnm.HTTPresponses.UnprocessableEntityError = rn.HTTPresponses.UnprocessableEntityError
+        }
+        if (s.paramIds && s.paramIds.length != 1) {
+          rnm.HTTPresponses.BadRequestError = rn.HTTPresponses.BadRequestError
+        }
+        break
+
+      case 'delete':
+        if (!s.handleDelete) break
+        var rnm = rn.methods[ method ] = {}
+        if (s.publicURL) rnm.url = s.getFullPublicURL()
+        rnm.permissions = f.call(s, 'permissions-doc.delete')
+        rnm.echo = !!s.echoAfterDelete
+
+        var i = s.echoAfterDelete ? '{ ...item... }' : ''
+        var d = s.echoAfterDelete ? 'The item as stored on the server before deletion' : 'Nothing (echo is off)'
+        rnm.HTTPresponses = {
+          OK: { status: 200, data: i, contentType: 'application/json', doc: d },
+          ServiceUnavailableError: rn.HTTPresponses.ServiceUnavailableError
+        }
+        if (!s[ 'disable-authresponses-doc']) {
+          rnm.HTTPresponses.UnauthorizedError = rn.HTTPresponses.UnauthorizedError
+          rnm.HTTPresponses.ForbiddenError = rn.HTTPresponses.ForbiddenError
+        }
+        if (s.paramIds.length != 1) {
+          rnm.HTTPresponses.BadRequestError = rn.HTTPresponses.BadRequestError
+        }
+        break
+
+    }
+  })
+
+  callAll(s, 'changeDoc', rn)
+
+  rn.hasMethods = !!Object.keys(rn.methods).length
+
+  return rn
+}
+
+/* Make full documentation data for the stores */
+Store.makeDocsData = function () {
+  var r = {}, rn, proto;
+  [].slice.call(arguments).forEach(function (storesHash) {
+    Object.keys(storesHash).forEach(function (storeName) {
+      var s = storesHash[ storeName ]
+      if (r[ storeName]) throw new Error('makeDocsData: You cannot have two stores with the same name!')
+      r[ storeName ] = Store.document(s)
+    })
+  })
+  return r
+}
