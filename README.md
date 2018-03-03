@@ -1,5 +1,17 @@
-JsonRestStores
-==============
+JsonRestStores TWO
+==================
+
+This is a rewrite of [JsonRestStores](https://github.com/mercmobily/jsonreststores), with the following changes:
+
+* MUCH MORE recoupling from the database query. Basically, I want to make it easier to use JsonRestStores in an environment where each store organises its own database queries. At the moment, it's really assuming that SimpleDbLayerMixin will be used.
+
+* Using all the ES6 technologies like native classes, async/await, arrow functions, etc.
+
+This is NOT usable right now. Documentation will be updated accordingly.
+
+# OLD DOCUMENTATION FOLLOWS
+## (Yes, it's too long)
+
 
 JsonRestStores is the best way to create **self-documenting** REST stores that return JSON data (yes: self-documenting!). JsonRestStores is in RC3 status, and the API is 100% locked. Please (find and) file bugs and requests as issues against this repo.
 
