@@ -9,6 +9,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 
 /*
+  TODO:
+  - Test a simple file upload
+  - Document implement***() functions, since I will need to use them a lot
+  - Make first fully functional store using mysql properly, trying to use as many features as possible
+  - Write very initial documentation, only for JsonRestStores
+*/
+
+/*
 NOTE. When creating a store, you can take the following shortcuts:
   * Don't specify `paramIds`. If not specified, it will be worked out from publicURL
   * Don't specify `idProperty`. If idProperty not specified, it will be assumed last element of paramIds
