@@ -78,10 +78,10 @@ var HTTPMixin = (superclass) => class extends superclass {
 
           // Nice shorter variables
           var skip = request.options.ranges.skip || 0
-          var total = request.data.total
+          var total = request.total
 
           // Work out 'of': it will depend on the grandTotal, and that's it. It's an easy one.
-          var of = request.data.grandTotal
+          var of = request.grandTotal
 
           // If nothing was returned, then the format 0-0/grandTotal is honoured
           if (!total) {
@@ -180,7 +180,8 @@ var HTTPMixin = (superclass) => class extends superclass {
 
     // If it's not in uploadFields, then end of the story: not allowed
     if (!storeAttributes) {
-      return cb(new this.UnprocessableEntityError('Unacceptable upload field: ' + file.fieldname), false)
+      var UnprocessableEntityError = this.constructor.UnprocessableEntityError
+      return cb(new UnprocessableEntityError('Unacceptable upload field: ' + file.fieldname), false)
 
     // There is no filter set by the store itself: allow it.
     } else if (typeof (self.uploadFilter) !== 'function') {
@@ -317,18 +318,12 @@ var HTTPMixin = (superclass) => class extends superclass {
     // Put and Post can come with extra headers which will set
     // options.putBefore and options.putDefaultPosition
     if (method === 'put' || method === 'post') {
-      // NOTE: in the server context, putBefore ALWAYS needs to be an id, and NEVER null
-      if (typeof (req.headers[ 'put-before' ]) !== 'undefined') {
-        options.putBefore = req.headers[ 'put-before' ]
-      } else {
-        // The header `put-default-position` is used if `put-before` isn't set
-        if (typeof (req.headers[ 'put-default-position' ]) !== 'undefined') {
-          // Set options.putDefaultPosition depending on passed header.
-          if (req.headers[ 'put-default-position' ] === 'start') {
-            options.putDefaultPosition = 'start'
-          } else {
-            options.putDefaultPosition = 'end'
-          }
+      // positioning can be 'after', 'start' or 'end'
+      if (typeof (req.headers[ 'placement' ]) !== 'undefined') {
+        options.placement = req.headers[ 'placement' ]
+
+        if (options.placement === 'after') {
+          options.placementAfter = req.headers[ 'placement-after' ]
         }
       }
     }
@@ -409,7 +404,6 @@ var HTTPMixin = (superclass) => class extends superclass {
       rangeTo = tokens[2] - 0
       if (rangeTo === 'Infinity') {
         return ({
-          // from: rangeFrom
           skip: rangeFrom
         })
       } else {
@@ -423,10 +417,11 @@ var HTTPMixin = (superclass) => class extends superclass {
     }
 
     // Range headers not found or not valid, return null
-    return null
+    return { skip: 0, limit: this.defaultLimitOnQueries }
   }
 
   _parseConditions (req) {
+    debugger
     var urlParts = url.parse(req.url, false)
     var q = urlParts.query || ''
     var result
@@ -439,7 +434,8 @@ var HTTPMixin = (superclass) => class extends superclass {
 
   // Turns an error into an UnprocessableEntityError
   _uploadErrorProcessor (err, next) {
-    var ReturnedError = new this.UnprocessableEntityError((err.field ? err.field : '') + ': ' + err.message)
+    var UnprocessableEntityError = this.constructor.UnprocessableEntityError
+    var ReturnedError = new UnprocessableEntityError((err.field ? err.field : '') + ': ' + err.message)
     ReturnedError.OriginalError = err
     return next(ReturnedError)
   }

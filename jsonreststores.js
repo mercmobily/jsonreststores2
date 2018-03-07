@@ -9,14 +9,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 
 /*
-  TODO:
-  - Test a simple file upload
-  - Document implement***() functions, since I will need to use them a lot
-  - Make first fully functional store using mysql properly, trying to use as many features as possible
-  - Write very initial documentation, only for JsonRestStores
-*/
-
-/*
 NOTE. When creating a store, you can take the following shortcuts:
   * Don't specify `paramIds`. If not specified, it will be worked out from publicURL
   * Don't specify `idProperty`. If idProperty not specified, it will be assumed last element of paramIds
@@ -60,6 +52,7 @@ var Store = class {
 
   static get positioning () { return false }    // If set, will make fields re-positionable
   static get defaultSort () { return null }  // If set, it will be applied to all getQuery calls
+  static get defaultLimitOnQueries () { return 50 } //  Max number of records returned by default
 
   // ****************************************************
   // *** ERRORS
@@ -85,28 +78,38 @@ var Store = class {
 
   // Methods that MUST be implemented for the store to be functional
 
+  // Input: request.params
+  // Output: an object, or null
   async implementFetchOne (request) {
     throw (new Error('implementFetchOne not implemented, store is not functional'))
   }
 
-  async implementInsert (request, forceId) {
+  // Input: request.body, request.options.[placement,placementAfter]
+  // Output: an object (saved record)
+  async implementInsert (request) {
     throw (new Error('implementInsert not implemented, store is not functional'))
   }
 
+  // Input:
+  // - request.params (query)
+  // - request.body (data)
+  // - request.options.field (field name if it's a one-field update)
+  // - request.options.[placement,placementAfter] (for record placement)
+  // Output: an object (updated record)
   async implementUpdate (request, deleteUnsetFields) {
     throw (new Error('implementUpdate not implemented, store is not functional'))
   }
 
+  // Input: request.params
+  // Output: an object (deleted record)
   async implementDelete (request) {
     throw (new Error('implementDelete not implemented, store is not functional'))
   }
 
+  // Input: request.params, request.options.[conditionsHash,ranges,sort]
+  // Output: { data, total, grandTotal }
   async implementQuery (request) {
     throw (new Error('implementQuery not implemented, store is not functional'))
-  }
-
-  async implementReposition (doc, where, beforeId) {
-    throw (new Error('implementReposition not implemented, store is not functional'))
   }
 
   // ****************************************************
@@ -133,9 +136,6 @@ var Store = class {
   async afterDbOperationInsert (request, method) { }
   async afterDbOperationUpdate (request, method) { }
   async afterDbOperationDelete (request, method) { }
-
-  async beforeReposition (request, method) { }
-  async afterReposition (request, method) { }
 
   async beforeReturn (request, method) { }
 
@@ -187,6 +187,7 @@ var Store = class {
     self.handleDelete = Self.handleDelete
     self.positioning = Self.positioning
     self.defaultSort = Self.defaultSort
+    self.defaultLimitOnQueries = Self.defaultLimitOnQueries
 
     // This will contain the single fields
     self._singleFields = {}
@@ -259,34 +260,6 @@ var Store = class {
 
   // Simple function that shallow-copies an object.
   _co (o) { return Object.assign({}, o) }
-
-  // Will call implementReposition based on options.
-  // -putBefore is an id.
-  // -putDefaultPosition is 'start' or 'end'.
-  // -existing is true or false: true for existing records false for new ones
-  //
-  // When calling implementReposition:
-  // - where can be 'start', 'end' or 'before'
-  // - beforeId is only meaningful for 'before' (tell is where to place it)
-  // - existing is boolean, and it's only meaningful if this.position is there
-  async _repositionBasedOnOptions (fullDoc, putBefore, putDefaultPosition, existing) {
-    // No position field: nothing to do
-    if (!this.positioning) return
-
-    // CASE #1: putBefore is set: where = at, beforeId = putBefore
-    if (putBefore) {
-      await this.implementReposition(fullDoc, 'before', putBefore)
-
-    // CASE #2: putDefaultPosition is set: where = putDefaultPosition, beforeId = null
-    } else if (putDefaultPosition) {
-      await this.implementReposition(fullDoc, putDefaultPosition, null)
-
-    // CASE #3: putBefore and putDefaultPosition are not set. IF it's a new record, where = end, beforeId = null
-    } else if (!existing) {
-      await this.implementReposition(fullDoc, 'end', null)
-    }
-    // CASE #4: don't do anything.
-  }
 
   getFullPublicURL () {
     // No prefix: return the publicURL straight
@@ -393,13 +366,8 @@ var Store = class {
 
     // Execute actual DB operation
     await self.beforeDbOperationInsert(request, 'post')
-    request.doc = await self.implementInsert(request, 'post')
+    request.doc = await self.implementInsert(request, 'post') || null
     await self.afterDbOperationInsert(request, 'post')
-
-    // Reposition if needed
-    await self.beforeReposition(request, 'post')
-    await self._repositionBasedOnOptions(request.doc, request.options.putBefore, request.options.putDefaultPosition, false)
-    await self.afterReposition(request, 'post')
 
     // Send over to the client
     await self.beforeReturn(request, 'post')
@@ -433,7 +401,7 @@ var Store = class {
 
     // Fetch the record
     await self.beforeDbOperationFetchOne(request, 'put')
-    request.doc = await self.implementFetchOne(request, 'put')
+    request.doc = await self.implementFetchOne(request, 'put') || null
     await self.afterDbOperationFetchOne(request, 'put')
 
     request.putNew = !request.doc
@@ -445,22 +413,26 @@ var Store = class {
     if (!granted) throw new Store.ForbiddenError(message)
     await self.afterCheckPermissions(request, 'put')
 
+    // Check the 'overwrite' option, throw if fail
+    if (typeof request.options.overwrite !== 'undefined') {
+      if (request.doc && !request.options.overwrite) {
+        throw new self.PreconditionFailedError()
+      } else if (!request.doc && request.options.overwrite) {
+        throw new self.PreconditionFailedError()
+      }
+    }
+
     if (!request.doc) {
       // Execute actual DB operation
       await self.beforeDbOperationInsert(request, 'put')
-      request.doc = await self.implementInsert(request, 'put')
+      request.doc = await self.implementInsert(request, 'put') || null
       await self.afterDbOperationInsert(request, 'put')
     } else {
       // Execute actual DB operation
       await self.beforeDbOperationUpdate(request, 'put')
-      request.doc = await self.implementUpdate(request, 'put')
+      request.doc = await self.implementUpdate(request, 'put') || null
       await self.afterDbOperationUpdate(request, 'put')
     }
-
-    // Reposition if needed
-    await self.beforeReposition(request, 'put')
-    await self._repositionBasedOnOptions(request.doc, request.options.putBefore, request.options.putDefaultPosition, !!request.putExisting)
-    await self.afterReposition(request, 'put')
 
     // Send over to the client
     await self.beforeReturn(request, 'put')
@@ -483,8 +455,11 @@ var Store = class {
 
     // Execute actual DB operation
     await self.beforeDbOperationFetchOne(request, 'get')
-    request.doc = await self.implementFetchOne(request, 'get')
+    request.doc = await self.implementFetchOne(request, 'get') || null
     await self.afterDbOperationFetchOne(request, 'get')
+
+    // Record not there: not found error!
+    if (!request.doc) throw new Store.NotFoundError()
 
     // Check permissions
     await self.beforeCheckPermissions(request, 'get')
@@ -501,7 +476,7 @@ var Store = class {
     var self = this
 
     // This is the 'doc' as such
-    request.doc = null
+    request.docs = null
 
     // Check that the method is implemented
     if (!self.handleGet && request.remote) throw new Store.NotImplementedError()
@@ -512,7 +487,7 @@ var Store = class {
     await self.beforeCheckParamIds(request, 'getQuery')
 
     // Validate the search schema
-    var { validatedObject, errors } = await self.schema.validate(request.params, { onlyObjectValues: true })
+    var { validatedObject, errors } = await self.schema.validate(request.options.conditionsHash, { onlyObjectValues: true })
     if (errors.length) throw new self.BadRequestError({ errors: errors })
 
     request.options.conditionsHash = validatedObject
@@ -525,12 +500,15 @@ var Store = class {
 
     // Execute actual DB operation
     await self.beforeDbOperationQuery(request, 'getQuery')
-    request.doc = await self.implementQuery(request, 'getQuery')
+    let { data, grandTotal } = await self.implementQuery(request, 'getQuery') || { data: [], grandTotal: 0 }
+    request.docs = data || []
+    request.total = data.length
+    request.grandTotal = grandTotal // MERC
     await self.afterDbOperationQuery(request, 'getQuery')
 
     // Send over to the client
     await self.beforeReturn(request, 'getQuery')
-    return request.doc
+    return request.docs
   }
 
   async _makeDelete (request) {
@@ -549,8 +527,11 @@ var Store = class {
 
     // Fetch the record
     await self.beforeDbOperationFetchOne(request, 'delete')
-    request.doc = await self.implementFetchOne(request, 'delete')
+    request.doc = await self.implementFetchOne(request, 'delete') || null
     await self.afterDbOperationFetchOne(request, 'delete')
+
+    // Record not there: not found error!
+    if (!request.doc) throw new Store.NotFoundError()
 
     // Check permissions
     await self.beforeCheckPermissions(request, 'delete')

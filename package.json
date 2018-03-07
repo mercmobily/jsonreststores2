@@ -6,7 +6,7 @@
     "REST",
     "mongodb"
   ],
-  "main": "JsonRestStores.js",
+  "main": "jsonreststores.js",
   "version": "0.3.97",
   "readmeFilename": "README.md",
   "private": false,
@@ -22,19 +22,12 @@
   },
   "dependencies": {
     "allhttperrors": "0.3.x",
-    "async": "~1.5.2",
     "deepobject": "~0.3.x",
-    "marked": "~0.3.x",
     "multer": "~1.1.x",
     "p-iteration": "^1.1.5",
-    "simpledeclare": "0.3.x",
-    "simpleschema": "0.3.x"
+    "simpleschema2": "1.1.x"
   },
-  "devDependencies": {
-    "nodeunit": "~0.9.1",
-    "simpledblayer-tingo": "0.3.x",
-    "simpledblayer": "0.3.x"
-  },
+  "devDependencies": {},
   "bugs": {
     "url": "https://github.com/mercmobily/JsonRestStores/issues"
   }
