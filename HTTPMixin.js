@@ -421,7 +421,6 @@ var HTTPMixin = (superclass) => class extends superclass {
   }
 
   _parseConditions (req) {
-    debugger
     var urlParts = url.parse(req.url, false)
     var q = urlParts.query || ''
     var result
