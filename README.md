@@ -3,11 +3,10 @@ JsonRestStores TWO
 
 JsonRestStore2 (just JsonRestStores from here on) is a rewrite of [JsonRestStores](https://github.com/mercmobily/jsonreststores)
 
-JsonRestStores is the best way to create **self-documenting** (coming back soon) REST stores that return JSON data
-
 Rundown of features:
 
 * **DRY approach**. Create complex applications keeping your code short and tight, without repeating yourself.
+* **unintrusive**. It only does all the things you'd have to repeat over and over again. The "real" stuff (managing data) is in your hands
 * **Down-to-earth**. It does what developers _actually_ need, using existing technologies.
 * **Database-agnostic**. When creating a store, all you have to do is write the essential queries to fetch/modify data.
 * **Protocol-agnostic**. HTTP is only one of the possible protocols.
@@ -19,6 +18,7 @@ Rundown of features:
 * **Mixin-based**. You can add functionality easily.
 * **Inheriting stores**. You can easily derive a store from another one.
 * **Great documentation**. (Work in progress after the rewrite)
+* **Self documenting**. (Work in progress after the rewrite)
 
 # Introduction to (JSON) REST stores
 
@@ -890,3 +890,6 @@ All normal hooks are called when using these functions. However:
 
 
 # Conclusion
+
+
+TODO: Document HTTPMixin, explaining how each header is transformed into an option
