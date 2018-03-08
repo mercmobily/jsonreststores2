@@ -359,10 +359,12 @@ var Store = class {
     await self.afterValidate(request, 'post')
 
     // Check permissions
-    await self.beforeCheckPermissions(request, 'post')
-    var { granted, message } = await self.checkPermissions(request, 'post')
-    if (!granted) throw new Store.ForbiddenError(message)
-    await self.afterCheckPermissions(request, 'post')
+    if (request.remote) {
+      await self.beforeCheckPermissions(request, 'post')
+      var { granted, message } = await self.checkPermissions(request, 'post')
+      if (!granted) throw new Store.ForbiddenError(message)
+      await self.afterCheckPermissions(request, 'post')
+    }
 
     // Execute actual DB operation
     await self.beforeDbOperationInsert(request, 'post')
@@ -408,10 +410,12 @@ var Store = class {
     request.putExisting = !!request.doc
 
     // Check permissions
-    await self.beforeCheckPermissions(request, 'put')
-    let { granted, message } = await self.checkPermissions(request, 'put')
-    if (!granted) throw new Store.ForbiddenError(message)
-    await self.afterCheckPermissions(request, 'put')
+    if (request.remote) {
+      await self.beforeCheckPermissions(request, 'put')
+      let { granted, message } = await self.checkPermissions(request, 'put')
+      if (!granted) throw new Store.ForbiddenError(message)
+      await self.afterCheckPermissions(request, 'put')
+    }
 
     // Check the 'overwrite' option, throw if fail
     if (typeof request.options.overwrite !== 'undefined') {
@@ -423,6 +427,14 @@ var Store = class {
     }
 
     if (!request.doc) {
+      //
+      // It cannot be a new doc and have "single field" set, since
+      // the single-field put is supposed to only ever be used on existing
+      // records
+      if (request.options.field) {
+        if (errors.length) throw new Store.UnprocessableEntityError('Field update only allowed on existing records')
+      }
+
       // Execute actual DB operation
       await self.beforeDbOperationInsert(request, 'put')
       request.doc = await self.implementInsert(request, 'put') || null
@@ -462,10 +474,12 @@ var Store = class {
     if (!request.doc) throw new Store.NotFoundError()
 
     // Check permissions
-    await self.beforeCheckPermissions(request, 'get')
-    var { granted, message } = await self.checkPermissions(request, 'get')
-    if (!granted) throw new Store.ForbiddenError(message)
-    await self.afterCheckPermissions(request, 'get')
+    if (request.remote) {
+      await self.beforeCheckPermissions(request, 'get')
+      var { granted, message } = await self.checkPermissions(request, 'get')
+      if (!granted) throw new Store.ForbiddenError(message)
+      await self.afterCheckPermissions(request, 'get')
+    }
 
     // Send over to the client
     await self.beforeReturn(request, 'get')
@@ -493,10 +507,12 @@ var Store = class {
     request.options.conditionsHash = validatedObject
 
     // Check permissions
-    await self.beforeCheckPermissions(request, 'getQuery')
-    var { granted, message } = await self.checkPermissions(request, 'getQuery')
-    if (!granted) throw new Store.ForbiddenError(message)
-    await self.afterCheckPermissions(request, 'getQuery')
+    if (request.remote) {
+      await self.beforeCheckPermissions(request, 'getQuery')
+      var { granted, message } = await self.checkPermissions(request, 'getQuery')
+      if (!granted) throw new Store.ForbiddenError(message)
+      await self.afterCheckPermissions(request, 'getQuery')
+    }
 
     // Execute actual DB operation
     await self.beforeDbOperationQuery(request, 'getQuery')
@@ -534,10 +550,12 @@ var Store = class {
     if (!request.doc) throw new Store.NotFoundError()
 
     // Check permissions
-    await self.beforeCheckPermissions(request, 'delete')
-    var { granted, message } = await self.checkPermissions(request, 'delete')
-    if (!granted) throw new Store.ForbiddenError(message)
-    await self.afterCheckPermissions(request, 'delete')
+    if (request.remote) {
+      await self.beforeCheckPermissions(request, 'delete')
+      var { granted, message } = await self.checkPermissions(request, 'delete')
+      if (!granted) throw new Store.ForbiddenError(message)
+      await self.afterCheckPermissions(request, 'delete')
+    }
 
     // Execute actual DB operation
     await self.beforeDbOperationDelete(request, 'delete')
