@@ -128,7 +128,7 @@ Creating a store with JsonRestStores is very simple. Here is code that can be pl
       static get handleGetQuery () { return true }
       static get handleDelete () { return true }
 
-      async implementFetchOne (request) {
+      async implementFetch (request) {
         return (await connection.queryP('SELECT * FROM managers WHERE id = ?', request.params.id))[0]
       }
 
@@ -151,7 +151,7 @@ Creating a store with JsonRestStores is very simple. Here is code that can be pl
 
       async implementQuery (request) {
         var result = await connection.queryP(`SELECT * FROM managers LIMIT ?,?`, [ request.options.ranges.skip, request.options.ranges.limit ])
-        var grandTotal = await connection.query(`COUNT(*) FROM managers`)
+        var grandTotal = (await connection.queryP(`SELECT COUNT (*) as grandTotal FROM managers`))[0].grandTotal
         return { data: result, grandTotal: grandTotal }
       }
     }
@@ -287,15 +287,13 @@ A bit of testing with `curl`:
 
 It all works!
 
-# NOTE: DOCUMENTATION UPDATED TO THIS POINT
-
 # Implementing data-oriented calls
 
 Data-oriented calls are the bridge between your stores and your actual data. Data can be stored in a database, text files, or even remotely.
 
 Here is the list of calls that must be implemented -- and which methods need them:
 
- * `implementFetchOne(request)`. Required for methods `put`, `get`, `delete`.
+ * `implementFetch(request)`. Required for methods `put`, `get`, `delete`.
  * `implementInsert(request)`. Required for methods `post` and `put` (new records)
  * `implementUpdate(request)`. Required for method `put` (existing records)
  * `implementDelete(request`. Required for method `delete`.
@@ -303,51 +301,55 @@ Here is the list of calls that must be implemented -- and which methods need the
 
 Looking it from a different perspective, here are the `implement***` methods you will need to implement for each method to work properly:
 
- * `get`: `implementFetchOne()`.
+ * `get`: `implementFetch()`.
  * `getQuery`: `implementQuery()`
- * `put`: `implementFetchOne()`, `implementInsert()`, `implementUpdate()`
+ * `put`: `implementFetch()`, `implementInsert()`, `implementUpdate()`
  * `post`: `implementInsert()`
- * `delete`: `implementDelete()`
+ * `delete`: `implementFetch()`, `implementDelete()`
 
 When developing these methods, it's important to make sure that they function exactly as expected.
 
-## `implementFetchOne(request)`
+## `implementFetch(request)`
 
 This method is used to fetch a single record from the data source. The attributes taken into consideration in `request` are:
 
 * `request.remote`.
-* `request.params`. Sets the filter to search for the record to be fetched. For local request, it's acceptable to just match the key in `request.params` matching `self.idProperty`. For remote requests, it's best to filter data so that every key in `request.params` matches the equivalent key in the record.
+* `request.params`. Sets the filter to search for the record to be fetched. For local request, it's acceptable to just match the key in `request.params` matching `self.idProperty`. For remote requests, it's best to filter data so that every key in `request.params` matches the equivalent key in the record. This means that fetching `/manager/3/document/44` ought to create a query where `managerId` is `3` and `documentId` is `44`
 
-The callback `cb()` must be called with the fetched element as its second parameter, or `null` if a match wasn't found.
+Returning a falsy value implies that the item wasn't found.
 
 ## `implementInsert(request)`
 
-This method is used to add a single record to the data source. No attribute is taken into consideration in `request`.
+This method is used to add a single record to the data source. The attributes taken into consideration in `request` are:
 
-If `forceId` is set, then a shallow copy of the record should be made (with `this._co()`) and the object's `idProperty` key should be forced to be `forceId`.
+* `request.remote`.
+* `request.body`. The record that will effectively be written onto the database
+* `request.options.placement`. If set, it can be `first` (place the record first), `last` (place the record last) or `after` (place the record after another one)
+* `request.options.placementAfter`. If `request.options.placement` is `after`, the new record will be placed after the one with ID matching `placementAfter`.
 
-The callback `cb()` must be called with the record once written on the data source.
+The inserted record should be returned by this method.
 
 ## `implementUpdate(request)`
 
 This method is used to update a single record in the data source. The attributes taken into consideration in `request` are:
 
 * `request.remote`.
-* `request.params`. Sets the filter to search for the record to be updated. For local request, it's acceptable to just match the key in `request.params` matching `self.idProperty`. For remote requests, it's best to filter data so that every key in `request.params` matches the equivalent key in the record.
-* `request.body`. The fields to be updated in the data source.
+* `request.params`. Sets the filter to search for the record to be updated. See `implementFetch()`
+* `request.body`. The fields to be updated in the data source. Even though it depends on design decisions, generally speaking each field in the schema should be updated
+* `request.field`. If set, this is a _field update_. This means that the query is only meant to update one specific field.
+* `request.options.placement`. If set, it can be `first` (place the record first), `last` (place the record last) or `after` (place the record after another one)
+* `request.options.placementAfter`. If `request.options.placement` is `after`, the new record will be placed after the one with ID matching `placementAfter`.
 
-If `deleteUnsetFields` is set to `true`, then all fields that are not set in `request.body` must be deleted from the matched record in the data source.
-
-The callback `cb()` must be called with the updated element as its second parameter, or `null` if a match wasn't found.
+The updated record should be returned by this method.
 
 ## `implementDelete(request)`
 
 This method is used to delete a single record from the data source. The attributes taken into consideration in `request` are:
 
 * `request.remote`.
-* `request.params`. Sets the filter to search for the record to be deleted. For local request, it's acceptable to just match the key in `request.params` matching `self.idProperty`. For remote requests, it's best to filter data so that every key in `request.params` matches the equivalent key in the record.
+* `request.params`. Sets the filter to search for the record to be deleted. See `implementFetch()`
 
-The callback `cb()` must be called with the fetched element as its second parameter, or `null` if a match wasn't found.
+The deleted record should be returned by this method.
 
 ## `implementQuery(request)`
 
@@ -356,47 +358,79 @@ This method is used to fetch a set of records from the data source. The attribut
 * `request.remote`.
 * `request.params`. For remote requests, adds filtering restrictions to the query so that only matching records will be fetched. For local request, such extra filtering should be avoided.
 * `request.options`. The options object that will define what data is to be fetched. Specifically:
-  * `request.options.conditions`: an object specifying key/value criteria to be applied for filtering
+  * `request.options.conditions`: an object specifying key/value criteria to be applied for filtering. The allowed values depend on the store's own `searchSchema` (see the next section)
   * `request.options.sort`: an object specifying how sorting should happen. For example `{ surname: -1, age: 1  }`.
   * `request.options.range`: an object with up to attributes:
     * `limit` must make sure that only a limited number of records are fetched;
     * `skip` must make sure that a number of records are skipped.
-  * `request.options.delete`: if set to `true`, each fetched record will be deleted after fetching. The default is the store's own `self.deleteAfterGetQuery` attribute (which is itself `false` by default).
-  * `request.options.skipHardLimitOnQueries`: if set to `true`, the limitation set by the store's own attribute `hardLimitOnQueries` will not be applied.
+
+The list of returned records (as array) should be returned by this method.
 
 ## Custom `searchSchema`
 
-In JsonRestStores you actually define what fields are acceptable as filters with the parameter `searchSchema`, which is defined exactly as a schema. So, writing this is equivalent to the code just above:
+In JsonRestStores you actually define what fields are acceptable as filters in `implementQuery` (specifically, `request.options.conditions`) with the property `searchSchema`, which is defined exactly as a schema. So, writing this is equivalent to the code just above:
 
-    var Managers = declare( Store, {
+    // Basic definition of the managers store
+    class Managers extends HTTPMixin(Store) {
+      static get schema () {
+        return new Schema({
+          name: { type: 'string', trim: 60 },
+          surname: { type: 'string', searchable: true, trim: 60 }
+        })
+      }
 
-      schema: new Schema({
-        name   : { type: 'string', trim: 60 },
-        surname: { type: 'string', searchable: true, trim: 60 },
-      }),
-
-      onlineSearchSchema: new Schema( {
+      searchSchema: new Schema( {
         surname: { type: 'string', trim: 60 },
       }),
 
-      storeName: 'managers',
-      publicURL: '/managers/:id',
+      static get storeName () { return 'managers' }
+      static get publicURL () { return '/managers/:id' }
 
-      handlePut: true,
-      handlePost: true,
-      handleGet: true,
-      handleGetQuery: true,
-      handleDelete: true,
-    });
+      static get handlePut () { return true }
+      static get handlePost () { return true }
+      static get handleGet () { return true }
+      static get handleGetQuery () { return true }
+      static get handleDelete () { return true }
 
-    var managers = new Managers();
+      // ...implement??? functions
+    }
 
-    JsonRestStores.init();
-    managers.protocolListen( 'HTTP', { app: app } );;
 
 If `searchSchema` is not defined, JsonRestStores will create one based on your main schema by doing a shallow copy, excluding `paramIds` (which means that, in this case, `id` is not added automatically to `searchSchema`, which is most likely what you want).
 
-If you define your own `searchSchema`, you are able to decide exactly how you want to filter the values. For example you could define a different default, or trim value, etc. However, in common applications you can probably live with the auto-generated `onlineSearchSchema`.
+If you define your own `searchSchema`, you are able to decide exactly how you want to filter the values. For example you could define a different default, or trim value, etc. You might also have fields that will create more complex queries. For example:
+
+    // Basic definition of the managers store
+    class Managers extends HTTPMixin(Store) {
+      static get schema () {
+        return new Schema({
+          name: { type: 'string', searchable: true, trim: 60 },
+          surname: { type: 'string', searchable: true, trim: 60 }
+        })
+      }
+
+      searchSchema: new Schema( {
+        surname: { type: 'string', trim: 60 },
+        name: { type: 'string', trim: 60 },
+        anyField: { type: string, trim: 60 }
+      }),
+
+      static get storeName () { return 'managers' }
+      static get publicURL () { return '/managers/:id' }
+
+      static get handlePut () { return true }
+      static get handlePost () { return true }
+      static get handleGet () { return true }
+      static get handleGetQuery () { return true }
+      static get handleDelete () { return true }
+
+      async implementQuery (request) {
+        // request.options.conditions might have 'any', which should generate
+        // an SQL query checking both name and surname
+      }
+
+      // ...implement??? functions
+    }
 
 
 # Naming conventions for stores
@@ -431,21 +465,14 @@ It's important to be consistent in naming conventions while creating stores. In 
     }
     var people = new People();
 
-    JsonRestStores.init();
-    managers.protocolListen( 'HTTP', { app: app } );;
-    people.protocolListen( 'HTTP', { app: app } );;
 
-* Store names anywhere lowercase and are plural (they are collections representing multiple entries)
-* Store constructors (derived from `Store`) are in capital letters (as constructors, they should be)
-* Store variables are in small letters (they are normal object variables)
-* `storeName` attributes are in small letters (to follow the lead of variables)
-* URL are in small letters (following the stores' names, since everybody knows that `/Capital/Urls/Are/Silly`)
+* Store names as string (e.g. `storeName`) should be lowercase and are plural (they are collections representing multiple entries)
+* Classes (derived from `Store`) are in capital letters
+* URLs are in non-capital letters (following the stores' names, since everybody knows that `/Capital/Urls/Are/Silly`)
 
 # Permissions
 
-By default, everything is allowed: stores allow pretty much anything and anything; anybody can DELETE, PUT, POST, etc. Furtunately, JsonRestStores allows you to decide exactly what is allowed and what isn't, by overriding specific methods.
-
-Every method runs the method `checkPermissions()` before continuing. If everything went fine, `checkPermissions()` will return `true`; if it returns `false`, along with a message, it means that permission wasn't granted.
+Every rest method runs `checkPermissions()` in order to check permissions. If everything is fine, `checkPermissions()`  returns `true`; if it returns `false`, along with a message, it means that permission wasn't granted.
 
 The `checkPermissions()` method has the following signature:
 
@@ -458,55 +485,17 @@ Here:
 
 Here is an example of a store only allowing deletion only to specific admin users:
 
-    // The basic schema for the WorkspaceUsers table
-    var WorkspaceUsers = declare( Store, {
-
-      schema: new Schema({
-        email     :  { type: 'string', trim: 128, searchable: true, sortable: true  },
-        name      :  { type: 'string', trim: 60, searchable: true, sortable: true  },
-      }),
-
-      storeName:  'WorkspaceUsers',
-      publicURL: '/workspaces/:workspaceId/users/:id',
-
-      handlePut: true,
-      handlePost: true,
-      handleGet: true,
-      handleGetQuery: true,
-      handleDelete: true,
-
-      checkPermissions: function( request, method, cb ){
-
-        // This will only affect `delete` methods
-        if( method !== 'delete' ) return cb( null, true );
-
-        // User is logged in: all good
-        if( request._req.session.user ){ // ._
-          cb( null, true );
-
-        // User is not logged in: fail!
-        } else {
-          cb( null, false, "Must login" );
-        }
-      },
-
-    });
-    var workspaceUsers = new WorkspaceUsers();
-    workspaceUsers.protocolListen( 'HTTP', { app: app } );;
-
-Permission checking can be as simple, or as complex, as you need it to be.
-
-Note that if your store is derived from another one, and you want to preserve your master store's permission model, you can run `super.checkPermissions()`:
+Note that if your store is derived from another one, and you want to preserve the parent store's permission model, you can run `super.checkPermissions()`:
 
       async checkPermissions (request, method) {
 
-        // Run the parent's permission check. If it failed, honours the failure
+        // Run the parent's permission check. If it failed, honour the failure
         let { granted, message } = super.checkPermissions(request, method)
-        if (!granted) return { granted, message }
+        if (!granted) return { granted: true }
 
-        // We are only enriching for `put`.
+        // We are only adding checks for  `put`.
         // In any other case, will go along with the parent's response
-        if (method === 'put') return { granted, message }
+        if (method === 'put') return { granted: true }
 
         // User is admin (id: 1 )
         if( request.session.user === 1){ return { granted: true }
@@ -548,82 +537,78 @@ The `publicURL` is used to:
 
 So, you could reach the same goal without `publicURL`:
 
-    var Managers = declare( Store, {
+    // Basic definition of the managers store
+    class Managers extends HTTPMixin(Store) {
+      static get schema () {
+        return new Schema({
+          id: { type: 'id' },
+          name: { type: 'string', searchable: true, trim: 60 },
+          surname: { type: 'string', trim: 60 }
+        })
+      }
 
-      schema: new Schema({
-        id     : { type: 'id' },
-        name   : { type: 'string', trim: 60 },
-        surname: { type: 'string', trim: 60 },
-      }),
+      static get paramIds () { return [ 'id' ] }
 
-      storeName: 'managers',
-      paramIds: [ 'id' ],
+      static get storeName () { return 'managers' }
+      static get publicURL () { return '/managers/:id' }
 
-      handlePut: true,
-      handlePost: true,
-      handleGet: true,
-      handleGetQuery: true,
-      handleDelete: true,
-
-      hardLimitOnQueries: 50,
-    });
-
-    var managers = new Managers();
-    JsonRestStores.init();
-    managers.protocolListen( 'HTTP', { app: app } );; // This will throw()
+      static get handlePut () { return true }
+      static get handlePost () { return true }
+      static get handleGet () { return true }
+      static get handleGetQuery () { return true }
+      static get handleDelete () { return true }
+      // ...implement??? functions
+    }
 
 Note that:
  * The `id` parameter had to be defined in the schema
  * The `paramIds` array had to be defined by hand
- * `managers.protocolListen( 'HTTP', { app: app } );` can't be used as the public URL is not there
-
-This pattern is much more verbose, and it doesn't allow the store to be placed online with `protocolListenHTTP()`.
+ * `managers.protocolListenHTTP({ app: app } );` can't be used as the public URL is not there
 
 In any case, the property `idProperty` is set as last element of `paramIds`; in this example, it is `id`.
 
-In the documentation, I will often refers to `paramIds`, which is an array of element in the schema which match the ones in the route. However, in all examples I will declare stores using the "shortened" version.
-
 # File uploads
 
-JsonRestStores in itself doesn't manage file uploads. The reason is simple: file uploads are a _very_ protocol-specific feature. For example, you can decide to upload files, along with your form, by using `multipart-formdata` as your `Content-type`, to instruct the browser to encode the information (before sending it to the sever) in a specific way that accommodates multiple file uploads. However, this is a separate issue to the store itself, which will only ever store the file's _name_, rather than the raw data.
+File upload is something that happens at HTTP level. So, it's implemented in HTTPMixin.
 
-Basicaly, all of the features to uplaod files in JsonRestStores are packed in HTTPMixin. This is how you do it:
+    // Basic definition of the managers store
+    class Managers extends HTTPMixin(Store) {
+      static get schema () {
+        return new Schema({
+          name: { type: 'string', trim: 60 },
+          surname: { type: 'string', searchable: true, trim: 60 }
+          picture: { default: '', type: 'string', trim: 128 },
+        })
+      }
 
-    var VideoResources = declare( [ Store ], {
+      static get storeName () { return 'managers' }
+      static get publicURL () { return '/managers/:id' }
 
-      schema: new HotSchema({
-        fileName         : { default: '', type: 'string', protected: true, singleField: true, trim: 128, searchable: false },
-        description      : { default: '', type: 'string', trim: 1024, searchable: false },
-      }),
+      static get handlePut () { return true }
+      static get handlePost () { return true }
+      static get handleGet () { return true }
+      static get handleGetQuery () { return true }
+      static get handleDelete () { return true }
 
-      uploadFields: {
-        fileName: {
-          destination: '/home/www/node/deployed/node_modules/wonder-server/public/resources',
-        },
-      },
+      static get uploadFields () { return {
+        picture: {
+          destination: '/home/www/files',
+        },  
+      }}
 
-      storeName:  'videoResources',
-
-      publicURL: '/videosResources/:id',
-      hotExpose: true,
-
-      handlePut: true,
-      handlePost: true,
-      handleGet: true,
-
-    });
-    stores.videoTemplatesResources = new VideoTemplatesResources();
+      // ...implement??? functions
+    }
 
 In this store:
 
 * The store has an `uploadFields` attribute, which lists the fields that will represent file paths resulting from the successful upload
-* The field is marked as `protected`; remember that the field represents the file's path, and that you don't want users to directly change it.
+* The field is populated with the fill path to the uploaded file
 
-For this store, HTTPMixin will do the following:
+For this to happen, effectively HTTPMixin will:
 
 * add a middleware in stores with `uploadFields`, adding the ability to parse `multipart/formdata` input from the client
 * save the files in the required location
-* set `req.body.fileName` as the file's path, and `req.bodyComputed.fileName` to true.
+* set `req.body.picture` as the file's path, and `req.bodyComputed.picture` to true.
 
 JsonRestStores will simply see values in `req.body`, blissfully unaware of the work done to parse the requests' input and the work to automatically populate `req.body` with the form values as well as the file paths.
 
@@ -645,7 +630,7 @@ The store above only covers a limited use case. Remembering that the `file` obje
 * `path` - The full path to the uploaded file
 
 
-In order to configure file uploads, you can set three attributes when you declare you store:
+In order to configure file uploads, you can set three `static get` attributes you can set when you declare you store:
 
 * `uploadFilter` -- to filter incoming files based on their names or fieldName
 * `uploadLimits` -- to set some upload limits, after which JsonRestStores will throw a `UnprocessableEntity` error.
@@ -667,7 +652,9 @@ This is especially useful if you want to check for swearwords in the file name, 
     uploadFilter: function( req, file, cb ){
       if( file.mimetype != 'video/mp4') return cb( null, false );
       cb( null, true );
-    },
+    }
+
+Note that because this code run in the context of `multer`, it uses callback-style,
 
 ### `uploadLimits`
 
@@ -683,9 +670,9 @@ This allows you to set specific download limits. The list comes straight from `b
 
 For example, the most typical use case would be:
 
-    uploadLimits: {
+    static get uploadLimits () { return {
       fileSize: 50000000 // 50 Mb
-    },
+    }}
 
 ### `uploadFields`
 
@@ -697,26 +684,23 @@ It accepts two parameters:
 
 This parameter is mandatory, and defines where the files connected to that field will be stored. It can either be a string, or a function with the following signature: `function( req, file, cb )`. It will need to call the callback `cb` with `cb( null, FULL_PATH )`. For example:
 
-    uploadFields: {
-
-      avatarImage: {
+    static get uploadFields () { return {
+      picture: {
         destination: function (req, file, cb) {
           // This can depend on req, or file's attribute
           cb( null, '/tmp/my-uploads');
         }
       }
-
-    },
+    }
 
 #### `fileName`
 
-It's a function that will determine the file name. By default, it will be a function that works out the file name from the field name and either the record's ID (for PUT requests, where the ID is known) or a random string (for POST requests, where the ID is not known).
+It's a function that will determine the file name. By default, it will be a function that works out the file name from the field. By default, if you don't define a `fileName` function, it will be the equivalent of writing:
 
 If you don't set it, it will be:
 
-uploadFields: {
-
-      avatarImage: {
+    static get uploadFields () { return {
+      picture: {
         destination: function (req, file, cb) {
           // This can depend on req, or file's attribute
           cb( null, '/tmp/my-uploads');
@@ -747,9 +731,8 @@ By default, when there is an error, the file upload module `multer` will throw a
     },
 
 
-# `hardLimitOnQueries`: limit the number of records
+# NOTE: DOCUMENTATION UPDATED TO THIS POINT
 
-If your store has the `hardLimitOnQueries` set, any `getQuery` method (that is, a `GET` without the final `id`, and therefore fetching elements based on a filter) will never return more than `hardLimitOnQueries` results (unless you are using JsonRestStore's API, and manually set `options.skipHardLimitOnQueries` to `true`).
 
 # Inheriting a store from another one
 
@@ -888,8 +871,6 @@ All normal hooks are called when using these functions. However:
 * Permissions checking methods are not called at all: permission is always granted
 * When the request is done, rather than ending data through using the transport of choice (for example HTTP), the `next()` callback is called with the results.
 
-
 # Conclusion
-
 
 TODO: Document HTTPMixin, explaining how each header is transformed into an option
