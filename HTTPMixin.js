@@ -83,19 +83,20 @@ var HTTPMixin = (superclass) => class extends superclass {
           // Work out 'of': it will depend on the grandTotal, and that's it. It's an easy one.
           var of = request.grandTotal
 
-          // If nothing was returned, then the format 0-0/grandTotal is honoured
-          if (!total) {
-            from = 0
-            to = 0
+          if (typeof request.grandTotal !== 'undefined') {
+            // If nothing was returned, then the format 0-0/grandTotal is honoured
+            if (!total) {
+              from = 0
+              to = 0
+            // If something was returned, then `from` is the same as `skip`, and `to`
+            // will depends on how many records were returned
+            } else {
+              from = skip
+              to = from + total - 1
+            }
 
-          // If something was returned, then `from` is the same as `skip`, and `to`
-          // will depends on how many records were returned
-          } else {
-            from = skip
-            to = from + total - 1
+            request._res.setHeader('Content-Range', 'items ' + from + '-' + to + '/' + of)
           }
-
-          request._res.setHeader('Content-Range', 'items ' + from + '-' + to + '/' + of)
         }
         break
     }
@@ -344,7 +345,7 @@ var HTTPMixin = (superclass) => class extends superclass {
     // store's limit, so that range headers will be returned anyway,
     // otherwise the client
     if (!options.ranges) {
-      options.ranges = { limit: this.hardLimitOnQueries }
+      options.ranges = { }
     }
 
     // If self.defaultSort was passed, then maybe it needs to be applied (depending on options.sort)
