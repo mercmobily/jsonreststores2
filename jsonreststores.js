@@ -80,8 +80,8 @@ var Store = class {
 
   // Input: request.params
   // Output: an object, or null
-  async implementFetchOne (request) {
-    throw (new Error('implementFetchOne not implemented, store is not functional'))
+  async implementFetch (request) {
+    throw (new Error('implementFetch not implemented, store is not functional'))
   }
 
   // Input: request.body, request.options.[placement,placementAfter]
@@ -403,7 +403,7 @@ var Store = class {
 
     // Fetch the record
     await self.beforeDbOperationFetchOne(request, 'put')
-    request.doc = await self.implementFetchOne(request, 'put') || null
+    request.doc = await self.implementFetch(request, 'put') || null
     await self.afterDbOperationFetchOne(request, 'put')
 
     request.putNew = !request.doc
@@ -467,7 +467,7 @@ var Store = class {
 
     // Execute actual DB operation
     await self.beforeDbOperationFetchOne(request, 'get')
-    request.doc = await self.implementFetchOne(request, 'get') || null
+    request.doc = await self.implementFetch(request, 'get') || null
     await self.afterDbOperationFetchOne(request, 'get')
 
     // Record not there: not found error!
@@ -519,7 +519,7 @@ var Store = class {
     let { data, grandTotal } = await self.implementQuery(request, 'getQuery') || { data: [], grandTotal: 0 }
     request.docs = data || []
     request.total = data.length
-    request.grandTotal = grandTotal // MERC
+    if (grandTotal) request.grandTotal = grandTotal
     await self.afterDbOperationQuery(request, 'getQuery')
 
     // Send over to the client
@@ -543,7 +543,7 @@ var Store = class {
 
     // Fetch the record
     await self.beforeDbOperationFetchOne(request, 'delete')
-    request.doc = await self.implementFetchOne(request, 'delete') || null
+    request.doc = await self.implementFetch(request, 'delete') || null
     await self.afterDbOperationFetchOne(request, 'delete')
 
     // Record not there: not found error!
