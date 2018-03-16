@@ -493,7 +493,7 @@ var Store = class {
     request.docs = null
 
     // Check that the method is implemented
-    if (!self.handleGet && request.remote) throw new Store.NotImplementedError()
+    if (!self.handleGetQuery && request.remote) throw new Store.NotImplementedError()
 
     // Check the IDs
     await self.beforeCheckParamIds(request, 'getQquery')
