@@ -501,7 +501,7 @@ var Store = class {
     await self.beforeCheckParamIds(request, 'getQuery')
 
     // Validate the search schema
-    var { validatedObject, errors } = await self.schema.validate(request.options.conditionsHash, { onlyObjectValues: true })
+    var { validatedObject, errors } = await self.searchSchema.validate(request.options.conditionsHash, { onlyObjectValues: true })
     if (errors.length) throw new self.BadRequestError({ errors: errors })
 
     request.options.conditionsHash = validatedObject
