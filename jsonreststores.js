@@ -502,7 +502,7 @@ var Store = class {
 
     // Validate the search schema
     var { validatedObject, errors } = await self.searchSchema.validate(request.options.conditionsHash, { onlyObjectValues: true })
-    if (errors.length) throw new self.BadRequestError({ errors: errors })
+    if (errors.length) throw new Store.BadRequestError({ errors: errors })
 
     request.options.conditionsHash = validatedObject
 
