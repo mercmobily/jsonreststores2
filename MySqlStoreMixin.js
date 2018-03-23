@@ -72,6 +72,18 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return record
   }
 
+  defaultConditions (request, args, whereStr) {
+    var ch = request.options.conditionsHash
+    for (let k in ch) {
+      if (this.schema.structure[k]){
+        args.push(ch[k])
+        whereStr = whereStr + ` AND ${k} = ?`
+      }
+    }
+    return { args, whereStr }
+  }
+
+
   // Input: request.params, request.options.[conditionsHash,ranges.[skip,limit],sort]
   // Output: { dataArray, total, grandTotal }
   async implementQuery (request) {
@@ -81,8 +93,17 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     let ranges = request.options.ranges
     let args = []
 
-    // Add query conditions
+    // Default query string. This makes it easier to concatenate more
+    // conditions -- e.g. just add " AND XXX = ?"
     var whereStr = ' 1=1'
+
+    // If this.implementConditions is set, let it do the work: adding to args
+    // and
+    if (this.makeConditions) {
+      ;({args, whereStr } = this.makeConditions(request, args, whereStr))
+    } else {
+      ;({args, whereStr } = this.defaultConditions(request, args, whereStr))
+    }
 
     /*
     if (ch.prop1) {
