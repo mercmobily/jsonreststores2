@@ -14,6 +14,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   constructor () {
     super()
     this.connection = this.constructor.connection
+    this.connection.queryP = promisify(this.connection.query)
     this.table = this.constructor.table
   }
 
@@ -28,7 +29,6 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   _checkVars () {
     if (!this.connection) throw new Error('The static property "connection" must be set')
     if (!this.table) throw new Error('The static property "table" must be set')
-    this.connection.queryP = promisify(this.connection.query)
   }
 
   // Input: request.params
@@ -89,14 +89,12 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   async implementQuery (request) {
     this._checkVars()
 
-    // let ch = request.options.conditionsHash
     let ranges = request.options.ranges
     let args = []
 
     // Default query string. This makes it easier to concatenate more
     // conditions -- e.g. just add " AND XXX = ?"
     var whereStr = ' 1=1'
-
     // If this.implementConditions is set, let it do the work: adding to args
     // and
     if (this.makeConditions) {
