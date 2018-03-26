@@ -10,7 +10,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 var promisify = require('util').promisify
 
 var MySqlStoreMixin = (superclass) => class extends superclass {
-
   constructor () {
     super()
     this.connection = this.constructor.connection
@@ -72,17 +71,16 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return record
   }
 
-  defaultConditions (request, args, whereStr) {
+  defaultConditions (request, args, whereStr, prefix) {
     var ch = request.options.conditionsHash
     for (let k in ch) {
-      if (this.schema.structure[k]){
+      if (this.schema.structure[k]) {
         args.push(ch[k])
-        whereStr = whereStr + ` AND ${k} = ?`
+        whereStr = whereStr + ` AND ${prefix}${k} = ?`
       }
     }
     return { args, whereStr }
   }
-
 
   // Input: request.params, request.options.[conditionsHash,ranges.[skip,limit],sort]
   // Output: { dataArray, total, grandTotal }
@@ -100,9 +98,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     // If this.implementConditions is set, let it do the work: adding to args
     // and
     if (this.makeConditions) {
-      ;({args, whereStr } = this.makeConditions(request, args, whereStr))
+      ;({ args, whereStr } = this.makeConditions(request, args, whereStr))
     } else {
-      ;({args, whereStr } = this.defaultConditions(request, args, whereStr))
+      ;({ args, whereStr } = this.defaultConditions(request, args, whereStr))
     }
 
     /*
