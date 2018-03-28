@@ -140,7 +140,6 @@ var Store = class {
   // ****************************************************
 
   async checkPermissions (request, method) { return { granted: true } }
-  async send (request, method) { return () => {} }
 
   // ****************************************************
   // *** ERROR-MANAGING HELPER FUNCTIONS
