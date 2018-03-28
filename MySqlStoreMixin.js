@@ -30,12 +30,28 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     if (!this.table) throw new Error('The static property "table" must be set')
   }
 
+  _selectFields (prefix) {
+    var l = []
+
+    // Always return isProperty
+    l.push(`${prefix}${this.idProperty}`)
+
+    // Return all fields from the schema that are not marked as "silent"
+    for (var k in this.schema.structure) {
+      if (!this.schema.structure[k].silent) l.push(`${prefix}${k}`)
+    }
+
+    // Link everything up, and that's it!
+    return l.join(',')
+  }
+
   // Input: request.params
   // Output: an object
   async implementFetch (request) {
     this._checkVars()
 
-    return (await this.connection.queryP(`SELECT * FROM ${this.table} WHERE id = ?`, request.params.id))[0]
+    var fields = this._selectFields(`${this.table}.`)
+    return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
 
   // Input: request.body, request.options.[placement,placementAfter]
@@ -43,8 +59,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   async implementInsert (request) {
     this._checkVars()
 
+    var fields = this._selectFields(`${this.table}.`)
     let insertResults = await this.connection.queryP(`INSERT INTO ${this.table} SET ?`, request.body)
-    let selectResults = await this.connection.queryP(`SELECT * FROM ${this.table} WHERE id = ?`, insertResults.insertId)
+    let selectResults = await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, insertResults.insertId)
     return selectResults[0]
   }
 
@@ -57,8 +74,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   async implementUpdate (request) {
     this._checkVars()
 
+    var fields = this._selectFields(`${this.table}.`)
     await this.connection.queryP(`UPDATE ${this.table} SET ? WHERE id = ?`, [request.body, request.params.id])
-    return (await this.connection.queryP(`SELECT * FROM ${this.table} WHERE id = ?`, request.params.id))[0]
+    return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
 
   // Input: request.params
@@ -66,7 +84,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   async implementDelete (request) {
     this._checkVars()
 
-    let record = (await this.connection.queryP(`SELECT * FROM ${this.table} WHERE id = ?`, request.params.id))[0]
+    var fields = this._selectFields(`${this.table}.`)
+
+    let record = (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
     await this.connection.queryP(`DELETE FROM ${this.table} WHERE id = ?`, [request.params.id])
     return record
   }
@@ -74,7 +94,8 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   defaultConditions (request, args, whereStr, prefix) {
     var ch = request.options.conditionsHash
     for (let k in ch) {
-      if (this.schema.structure[k]) {
+      // Add fields that are in the searchSchema
+      if (this.searchSchema.structure[k] && this.schema.structure[k] && String(ch[k]) !== '') {
         args.push(ch[k])
         whereStr = whereStr + ` AND ${prefix}${k} = ?`
       }
@@ -90,16 +111,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     let ranges = request.options.ranges
     let args = []
 
-    // Default query string. This makes it easier to concatenate more
-    // conditions -- e.g. just add " AND XXX = ?"
+    // Starting point of WHERE is `1=1` so that it's easy to concatenate
     var whereStr = ' 1=1'
-    // If this.implementConditions is set, let it do the work: adding to args
-    // and
-    if (this.makeConditions) {
-      ;({ args, whereStr } = this.makeConditions(request, args, whereStr))
-    } else {
-      ;({ args, whereStr } = this.defaultConditions(request, args, whereStr))
-    }
+    ;({ args, whereStr } = this.defaultConditions(request, args, whereStr))
 
     /*
     if (ch.prop1) {
@@ -116,7 +130,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     args.push(ranges.skip)
     args.push(ranges.limit)
 
-    var result = await this.connection.queryP(`SELECT * FROM ${this.table} WHERE ${whereStr} LIMIT ?,?`, args)
+    var fields = this._selectFields(`${this.table}.`)
+
+    var result = await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${whereStr} LIMIT ?,?`, args)
     var grandTotal = (await this.connection.queryP(`SELECT COUNT (*) as grandTotal FROM ${this.table} WHERE ${whereStr}`, args))[0].grandTotal
 
     return { data: result, grandTotal: grandTotal }
