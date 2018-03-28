@@ -7,7 +7,7 @@
     "mongodb"
   ],
   "main": "jsonreststores.js",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "readmeFilename": "README.md",
   "private": false,
   "repository": {
@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "allhttperrors": "0.3.x",
-    "deepobject": "~0.3.x",
+    "deepobject": "~0.4.x",
     "multer": "~1.1.x",
     "p-iteration": "^1.1.5",
     "simpleschema2": "1.1.x"
