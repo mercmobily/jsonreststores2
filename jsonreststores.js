@@ -50,8 +50,8 @@ var Store = class {
   static get handleGetQuery () { return false }
   static get handleDelete () { return false }
 
-  static get positioning () { return false }    // If set, will make fields re-positionable
-  static get defaultSort () { return null }  // If set, it will be applied to all getQuery calls
+  static get positioning () { return false } // If set, will make fields re-positionable
+  static get defaultSort () { return null } // If set, it will be applied to all getQuery calls
   static get defaultLimitOnQueries () { return 50 } //  Max number of records returned by default
 
   // ****************************************************
