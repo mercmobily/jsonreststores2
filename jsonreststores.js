@@ -33,9 +33,9 @@ var Store = class {
   static get publicURL () { return null } // Not mandatory (if you want your store to be API-only for some reason)
 
   static get schema () { return null }
-  static get idProperty () { return null } // If not set in prototype, taken as last item of paramIds)
+  static get idProperty () { return null } // If not set, taken as last item of paramIds)
   static get paramIds () { return [] } // Only allowed if publicURL is not set
-  static get searchSchema () { return null } // If not set in prototype, worked out from `schema` by constructor
+  static get searchSchema () { return null } // If not set, worked out from `schema` by constructor
 
   static get storeName () { return null }
   static get _singleFields () { return {} } // Fields that can be updated singularly
@@ -53,10 +53,6 @@ var Store = class {
   static get positioning () { return false } // If set, will make fields re-positionable
   static get defaultSort () { return null } // If set, it will be applied to all getQuery calls
   static get defaultLimitOnQueries () { return 50 } //  Max number of records returned by default
-
-  // ****************************************************
-  // *** ERRORS
-  // ****************************************************
 
   // Default error objects which might be used by this module.
   static get BadRequestError () { return e.BadRequestError }
