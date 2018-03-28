@@ -40,6 +40,8 @@ var Store = class {
   static get storeName () { return null }
   static get _singleFields () { return {} } // Fields that can be updated singularly
 
+  static get artificialDelay () { return 0 } // Artificial delay
+
   // ****************************************************
   // *** ATTRIBUTES THAT DEFINE STORE'S BEHAVIOUR
   // ****************************************************

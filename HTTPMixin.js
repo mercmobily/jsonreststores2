@@ -271,27 +271,29 @@ var HTTPMixin = (superclass) => class extends superclass {
 
       // Run the final action. If there was an error, send out
       // an HTTP error
-      var chainErrors = self.constructor.chainErrors
-      var p = self['_make' + funcName](request)
-      p.then((data) => {
-        self.protocolSendHTTP(request, method, data)
-      }).catch((error) => {
-        // Let the store log the error
-        self.logError(request, error)
+      setTimeout(() => {
+        var chainErrors = self.constructor.chainErrors
+        var p = self['_make' + funcName](request)
+        p.then((data) => {
+          self.protocolSendHTTP(request, method, data)
+        }).catch((error) => {
+          // Let the store log the error
+          self.logError(request, error)
 
-        // Case #1: All errors are to be chained: chain
-        if (chainErrors === 'all') return next(e)
+          // Case #1: All errors are to be chained: chain
+          if (chainErrors === 'all') return next(e)
 
-        // Case #2: Only non-http errors are to be chained. "Maybe" chain, "maybe" not
-        if (chainErrors === 'nonhttp') {
-          if (typeof (e[ error.name ]) === 'undefined') return next(error)
-          else self.protocolSendHTTP(request, 'error', error)
-        }
-        // Case #3: No errors are to be chained: send error regardless
-        if (chainErrors === 'none') {
-          self.protocolSendHTTP(request, 'error', error)
-        }
-      })
+          // Case #2: Only non-http errors are to be chained. "Maybe" chain, "maybe" not
+          if (chainErrors === 'nonhttp') {
+            if (typeof (e[ error.name ]) === 'undefined') return next(error)
+            else self.protocolSendHTTP(request, 'error', error)
+          }
+          // Case #3: No errors are to be chained: send error regardless
+          if (chainErrors === 'none') {
+            self.protocolSendHTTP(request, 'error', error)
+          }
+        })
+      }, self.constructor.artificialDelay)
     }
   }
 
