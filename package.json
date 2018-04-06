@@ -7,7 +7,7 @@
     "mongodb"
   ],
   "main": "jsonreststores.js",
-  "version": "1.1.12",
+  "version": "1.1.13",
   "readmeFilename": "README.md",
   "private": false,
   "repository": {
@@ -21,7 +21,7 @@
     "test": "nodeunit test-tingo.js"
   },
   "dependencies": {
-    "allhttperrors": "0.3.x",
+    "allhttperrors": "0.4.x",
     "deepobject": "~0.4.x",
     "multer": "~1.1.x",
     "p-iteration": "^1.1.5",
