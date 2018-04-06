@@ -384,7 +384,7 @@ var Store = class {
 
     // Check the IDs
     await self.beforeCheckParamIds(request, 'put')
-    await self._checkParamIds(request, true)
+    await self._checkParamIds(request)
     await self.afterCheckParamIds(request, 'put')
 
     // Add paramIds to body
