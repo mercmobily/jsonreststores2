@@ -234,51 +234,56 @@ var HTTPMixin = (superclass) => class extends superclass {
       throw (new Error('method can be get, getQuery, put, post, delete, fetField, putField'))
     }
 
-    return function (req, res, next) {
+    return async function (req, res, next) {
       var request = {}
       var funcName
 
-      Object.setPrototypeOf(req.body, Object.prototype)
-
-      // Sets all of the required fields for a request
-      request.remote = true
-      request.protocol = 'HTTP'
-      request.params = self._co(req.params) // NOTE: this is a copy
-      request.body = self._co(req.body) // NOTE: this is a copy
-      request.session = req.session
-      request.options = {}
-
       try {
-        request.options = self._initOptionsFromReq(method, req)
-      } catch (e) { return next(e) }
+        var _sleep = (ms) => { if (!ms) return; return new Promise(resolve => setTimeout(resolve, ms)) }
 
-      // Sets the request's _req and _res variables, extra fields hooks might want to use
-      // request._res will be used as a sending medium by protocolSendHTTP
-      request._req = req
-      request._res = res
+        Object.setPrototypeOf(req.body, Object.prototype)
 
-      // GetField and PutField are pseudo-request that will be translated back
-      // into `Put` and `Get` (with `field` set in option)
-      if (method === 'getField') {
-        funcName = 'Get'
-        request.options.field = field
-      } else if (method === 'putField') {
-        funcName = 'Put'
-        request.options.field = field
-      } else {
-        funcName = method[0].toUpperCase() + method.slice(1)
-      }
+        // Sets all of the required fields for a request
+        request.remote = true
+        request.protocol = 'HTTP'
+        request.params = self._co(req.params) // NOTE: this is a copy
+        request.body = self._co(req.body) // NOTE: this is a copy
+        request.session = req.session
+        request.options = {}
 
-      // Run the final action. If there was an error, send out
-      // an HTTP error
-      setTimeout(() => {
-        var chainErrors = self.constructor.chainErrors
-        var p = self['_make' + funcName](request)
-        p.then((data) => {
+        try {
+          request.options = self._initOptionsFromReq(method, req)
+        } catch (e) { return next(e) }
+
+        // Sets the request's _req and _res variables, extra fields hooks might want to use
+        // request._res will be used as a sending medium by protocolSendHTTP
+        request._req = req
+        request._res = res
+
+        // GetField and PutField are pseudo-request that will be translated back
+        // into `Put` and `Get` (with `field` set in option)
+        if (method === 'getField') {
+          funcName = 'Get'
+          request.options.field = field
+        } else if (method === 'putField') {
+          funcName = 'Put'
+          request.options.field = field
+        } else {
+          funcName = method[0].toUpperCase() + method.slice(1)
+        }
+
+        // I dreamed of being able to do this in node for _years_
+        await _sleep(self.constructor.artificialDelay)
+
+        try {
+          var data = await self['_make' + funcName](request)
           self.protocolSendHTTP(request, method, data)
-        }).catch((error) => {
+        } catch (error) {
           // Let the store log the error
           self.logError(request, error)
+
+          // See what to do with the error
+          var chainErrors = self.constructor.chainErrors
 
           // Case #1: All errors are to be chained: chain
           if (chainErrors === 'all') return next(e)
@@ -292,8 +297,10 @@ var HTTPMixin = (superclass) => class extends superclass {
           if (chainErrors === 'none') {
             self.protocolSendHTTP(request, 'error', error)
           }
-        })
-      }, self.constructor.artificialDelay)
+        }
+      } catch (e) {
+        return next(e)
+      }
     }
   }
 
