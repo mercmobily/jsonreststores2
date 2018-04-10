@@ -12,7 +12,6 @@ var url = require('url')
 var querystring = require('querystring')
 var multer = require('multer')
 var crypto = require('crypto')
-var e = require('allhttperrors')
 
 var HTTPMixin = (superclass) => class extends superclass {
   //
@@ -286,11 +285,11 @@ var HTTPMixin = (superclass) => class extends superclass {
           var chainErrors = self.constructor.chainErrors
 
           // Case #1: All errors are to be chained: chain
-          if (chainErrors === 'all') return next(e)
+          if (chainErrors === 'all') return next(error)
 
           // Case #2: Only non-http errors are to be chained. "Maybe" chain, "maybe" not
           if (chainErrors === 'nonhttp') {
-            if (typeof (e[ error.name ]) === 'undefined') return next(error)
+            if (typeof (error[ error.name ]) === 'undefined') return next(error)
             else self.protocolSendHTTP(request, 'error', error)
           }
           // Case #3: No errors are to be chained: send error regardless

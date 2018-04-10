@@ -103,36 +103,41 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return { args, whereStr }
   }
 
+  makeSortString (sort) {
+    var sortStr = ''
+    if (Object.keys(sort).length) {
+      let l = []
+      sortStr = ' ORDER BY '
+      for (let k in sort) {
+        l.push(k + ' ' + (sort[k] === '1' ? 'DESC' : 'ASC'))
+      }
+      sortStr = sortStr + l.join(',')
+    }
+    return sortStr
+  }
+
   // Input: request.params, request.options.[conditionsHash,ranges.[skip,limit],sort]
   // Output: { dataArray, total, grandTotal }
   async implementQuery (request) {
     this._checkVars()
 
-    let ranges = request.options.ranges
     let args = []
-
-    // Starting point of WHERE is `1=1` so that it's easy to concatenate
     var whereStr = ' 1=1'
+
+    // Make up default conditions
     ;({ args, whereStr } = this.defaultConditions(request, args, whereStr))
 
-    /*
-    if (ch.prop1) {
-      whereStr = whereStr + ' AND name LIKE ?'
-      args.push('%' + ch.prop1 + '%')
-    }
-    if (ch.prop2) {
-      whereStr = whereStr + ' AND name = ?'
-      args.push(ch.prop2)
-    }
-    */
-
     // Add ranges
-    args.push(ranges.skip)
-    args.push(ranges.limit)
+    args.push(request.options.ranges.skip)
+    args.push(request.options.ranges.limit)
 
+    // Set up sort
+    var sortStr = this.makeSortString(request.options.sort)
+
+    // Make up list of fields
     var fields = this._selectFields(`${this.table}.`)
 
-    var result = await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${whereStr} LIMIT ?,?`, args)
+    var result = await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${whereStr} ${sortStr} LIMIT ?,?`, args)
     var grandTotal = (await this.connection.queryP(`SELECT COUNT (*) as grandTotal FROM ${this.table} WHERE ${whereStr}`, args))[0].grandTotal
 
     return { data: result, grandTotal: grandTotal }
