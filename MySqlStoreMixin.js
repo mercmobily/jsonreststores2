@@ -91,7 +91,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return record
   }
 
-  defaultConditions (request, args, whereStr, prefix) {
+  defaultConditions (request, args, whereStr, prefix = '') {
     var ch = request.options.conditionsHash
     for (let k in ch) {
       // Add fields that are in the searchSchema
