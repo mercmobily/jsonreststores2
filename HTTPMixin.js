@@ -67,7 +67,7 @@ var HTTPMixin = (superclass) => class extends superclass {
         break
 
       case 'error':
-        status = data.httpError || 500
+        status = data.status || 500
         break
 
       case 'getQuery':
@@ -289,7 +289,7 @@ var HTTPMixin = (superclass) => class extends superclass {
 
           // Case #2: Only non-http errors are to be chained. "Maybe" chain, "maybe" not
           if (chainErrors === 'nonhttp') {
-            if (typeof (error[ error.name ]) === 'undefined') return next(error)
+            if (error.status === 'undefined') return next(error)
             else self.protocolSendHTTP(request, 'error', error)
           }
           // Case #3: No errors are to be chained: send error regardless
