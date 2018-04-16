@@ -278,6 +278,7 @@ var HTTPMixin = (superclass) => class extends superclass {
           var data = await self['_make' + funcName](request)
           self.protocolSendHTTP(request, method, data)
         } catch (error) {
+
           // Let the store log the error
           self.logError(request, error)
 
@@ -289,7 +290,7 @@ var HTTPMixin = (superclass) => class extends superclass {
 
           // Case #2: Only non-http errors are to be chained. "Maybe" chain, "maybe" not
           if (chainErrors === 'nonhttp') {
-            if (error.status === 'undefined') return next(error)
+            if (typeof error.status === 'undefined') return next(error)
             else self.protocolSendHTTP(request, 'error', error)
           }
           // Case #3: No errors are to be chained: send error regardless
