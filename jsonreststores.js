@@ -516,7 +516,7 @@ var Store = class {
     let { data, grandTotal } = await self.implementQuery(request, 'getQuery') || { data: [], grandTotal: 0 }
     request.docs = data || []
     request.total = data.length
-    if (grandTotal) request.grandTotal = grandTotal
+    if (typeof grandTotal !== 'undefined') request.grandTotal = grandTotal
     await self.afterDbOperationQuery(request, 'getQuery')
 
     // Send over to the client
