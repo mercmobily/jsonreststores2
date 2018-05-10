@@ -61,7 +61,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
     // var fields = this._selectFields(`${this.table}.`)
     let insertResults = await this.connection.queryP(`INSERT INTO ${this.table} SET ?`, request.body)
-    var bogusRequest = { params: { id: insertResults.insertId } }
+    var bogusRequest = { session: request.session, params: { id: insertResults.insertId } }
     return this.implementFetch(bogusRequest)
   }
 
@@ -77,7 +77,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     // var fields = this._selectFields(`${this.table}.`)
     await this.connection.queryP(`UPDATE ${this.table} SET ? WHERE id = ?`, [request.body, request.params.id])
 
-    var bogusRequest = { params: { id: request.params.id } }
+    var bogusRequest = { session: request.session, params: { id: request.params.id } }
     return this.implementFetch(bogusRequest)
     // return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
