@@ -278,7 +278,6 @@ var HTTPMixin = (superclass) => class extends superclass {
           var data = await self['_make' + funcName](request)
           self.protocolSendHTTP(request, method, data)
         } catch (error) {
-
           // Let the store log the error
           self.logError(request, error)
 
