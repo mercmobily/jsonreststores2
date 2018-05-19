@@ -71,7 +71,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   // Also, body[positionField] is deleted as it's managed directly by the mix
   async _calculatePosition (request) {
     // No position field: exit right away
-    if (typeof this.positionField === 'undefined' ) return
+    if (typeof this.positionField === 'undefined') return
 
     if (request.beforeId) {
       var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ?`, request.beforeId))[0]
