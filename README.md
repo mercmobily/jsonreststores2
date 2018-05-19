@@ -758,7 +758,7 @@ This is the comprehensive list of errors the class can create:
   * `NotImplementedError`
   * `ServiceUnavailableError`. Like this: `ServiceUnavailableError( { originalErr: error } )`
 
-These error constructors are borrowed from the [Allhttperrors](https://npmjs.org/package/allhttperrors) module -- you should its short and concise documentation. The short version is that `errorObject.httpError` will be set, and the constructor can have either a string or an object as parameters.
+These error constructors are borrowed from the [Allhttperrors](https://npmjs.org/package/allhttperrors) module -- you should its short and concise documentation. The short version is that `errorObject.status` and `errorObject.httpError` will be set as the error number, and the constructor can have either a string or an object as parameters.
 
 The error objects are all pretty standard. However:
 
