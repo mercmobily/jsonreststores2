@@ -15,7 +15,11 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     this.connection = this.constructor.connection
     this.connection.queryP = promisify(this.connection.query)
     this.table = this.constructor.table
+    this.beforeIdField = this.constructor.beforeIdField
+    this.positionField = this.constructor.positionField
   }
+
+  static get beforeIdField () { return 'beforeId' }
 
   static get connection () {
     return null
@@ -45,6 +49,16 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return l.join(',')
   }
 
+  // If a positionField is set, then delete body.beforeId -- before saving it
+  // in this.data, so that it can be used for positioning
+  async beforeValidate (request, method) {
+    if (this.positionField) {
+      request.beforeId = request.body[this.beforeIdField]
+      delete request.body[this.beforeIdField]
+    }
+
+    return super.beforeValidate(request, method)
+  }
   // Input: request.params
   // Output: an object
   async implementFetch (request) {
@@ -54,15 +68,43 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
 
+  // Also, body[positionField] is deleted as it's managed directly by the mix
+  async _calculatePosition (request) {
+    // No position field: exit right away
+    if (typeof this.positionField === 'undefined' ) return
+
+    if (request.beforeId) {
+      var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ?`, request.beforeId))[0]
+    }
+
+    // a valid beforeId (pointing to an existing item) always wins
+    if (beforeIdItem) {
+      await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 where ${this.positionField} >= ? ORDER BY position DESC`, beforeIdItem[this.positionField] || 0)
+      request.body[this.positionField] = beforeIdItem[this.positionField]
+
+    // No valid beforeId. Position will be either kept the same, or item will be added at the end
+    } else {
+      // IF it's an existing record with an existing position, keep the existing position
+      if (request.doc && typeof request.doc[this.positionField] !== 'undefined') {
+        request.body[this.positionField] = request.doc[this.positionField]
+      // Otherwise, add at the end
+      } else {
+        request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table}`))[0].maxPosition + 1
+      }
+    }
+  }
+
   // Input: request.body, request.options.[placement,placementAfter]
   // Output: an object (saved record)
   async implementInsert (request) {
     this._checkVars()
 
-    var fields = this._selectFields(`${this.table}.`)
+    await this._calculatePosition(request)
+
+    // var fields = this._selectFields(`${this.table}.`)
     let insertResults = await this.connection.queryP(`INSERT INTO ${this.table} SET ?`, request.body)
-    let selectResults = await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, insertResults.insertId)
-    return selectResults[0]
+    var bogusRequest = { session: request.session, params: { id: insertResults.insertId } }
+    return this.implementFetch(bogusRequest)
   }
 
   // Input:
@@ -74,9 +116,14 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   async implementUpdate (request) {
     this._checkVars()
 
-    var fields = this._selectFields(`${this.table}.`)
+    await this._calculatePosition(request)
+
+    // var fields = this._selectFields(`${this.table}.`)
     await this.connection.queryP(`UPDATE ${this.table} SET ? WHERE id = ?`, [request.body, request.params.id])
-    return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
+
+    var bogusRequest = { session: request.session, params: { id: request.params.id } }
+    return this.implementFetch(bogusRequest)
+    // return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
 
   // Input: request.params
@@ -91,7 +138,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return record
   }
 
-  defaultConditions (request, args, whereStr, prefix) {
+  defaultConditions (request, args, whereStr, prefix = '') {
     var ch = request.options.conditionsHash
     for (let k in ch) {
       // Add fields that are in the searchSchema
@@ -103,36 +150,41 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return { args, whereStr }
   }
 
+  makeSortString (sort) {
+    var sortStr = ''
+    if (Object.keys(sort).length) {
+      let l = []
+      sortStr = ' ORDER BY '
+      for (let k in sort) {
+        l.push(k + ' ' + (Number(sort[k]) === 1 ? 'DESC' : 'ASC'))
+      }
+      sortStr = sortStr + l.join(',')
+    }
+    return sortStr
+  }
+
   // Input: request.params, request.options.[conditionsHash,ranges.[skip,limit],sort]
   // Output: { dataArray, total, grandTotal }
   async implementQuery (request) {
     this._checkVars()
 
-    let ranges = request.options.ranges
     let args = []
-
-    // Starting point of WHERE is `1=1` so that it's easy to concatenate
     var whereStr = ' 1=1'
+
+    // Make up default conditions
     ;({ args, whereStr } = this.defaultConditions(request, args, whereStr))
 
-    /*
-    if (ch.prop1) {
-      whereStr = whereStr + ' AND name LIKE ?'
-      args.push('%' + ch.prop1 + '%')
-    }
-    if (ch.prop2) {
-      whereStr = whereStr + ' AND name = ?'
-      args.push(ch.prop2)
-    }
-    */
-
     // Add ranges
-    args.push(ranges.skip)
-    args.push(ranges.limit)
+    args.push(request.options.ranges.skip)
+    args.push(request.options.ranges.limit)
 
+    // Set up sort
+    var sortStr = this.makeSortString(request.options.sort)
+
+    // Make up list of fields
     var fields = this._selectFields(`${this.table}.`)
 
-    var result = await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${whereStr} LIMIT ?,?`, args)
+    var result = await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${whereStr} ${sortStr} LIMIT ?,?`, args)
     var grandTotal = (await this.connection.queryP(`SELECT COUNT (*) as grandTotal FROM ${this.table} WHERE ${whereStr}`, args))[0].grandTotal
 
     return { data: result, grandTotal: grandTotal }
