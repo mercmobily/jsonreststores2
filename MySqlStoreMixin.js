@@ -45,6 +45,16 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return l.join(',')
   }
 
+  // If a positionField is set, then delete body.beforeId -- before saving it
+  // in this.data, so that it can be used for positioning
+  async beforeValidate (request, method) {
+    if (this.positionField) {
+      request.beforeId = request.body[this.beforeIdField]
+      delete request.body[this.beforeIdField]
+    }
+
+    return super.beforeValidate(request, method)
+  }
   // Input: request.params
   // Output: an object
   async implementFetch (request) {
@@ -54,10 +64,38 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
 
+  // Also, body[positionField] is deleted as it's managed directly by the mix
+  async _calculatePosition (request) {
+    // No position field: exit right away
+    if (typeof this.positionField === 'undefined') return
+
+    if (request.beforeId) {
+      var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ?`, request.beforeId))[0]
+    }
+
+    // a valid beforeId (pointing to an existing item) always wins
+    if (beforeIdItem) {
+      await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 where ${this.positionField} >= ? ORDER BY position DESC`, beforeIdItem[this.positionField] || 0)
+      request.body[this.positionField] = beforeIdItem[this.positionField]
+
+    // No valid beforeId. Position will be either kept the same, or item will be added at the end
+    } else {
+      // IF it's an existing record with an existing position, keep the existing position
+      if (request.doc && typeof request.doc[this.positionField] !== 'undefined') {
+        request.body[this.positionField] = request.doc[this.positionField]
+      // Otherwise, add at the end
+      } else {
+        request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table}`))[0].maxPosition + 1
+      }
+    }
+  }
+
   // Input: request.body, request.options.[placement,placementAfter]
   // Output: an object (saved record)
   async implementInsert (request) {
     this._checkVars()
+
+    await this._calculatePosition(request)
 
     // var fields = this._selectFields(`${this.table}.`)
     let insertResults = await this.connection.queryP(`INSERT INTO ${this.table} SET ?`, request.body)
@@ -73,6 +111,8 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   // Output: an object (updated record)
   async implementUpdate (request) {
     this._checkVars()
+
+    await this._calculatePosition(request)
 
     // var fields = this._selectFields(`${this.table}.`)
     await this.connection.queryP(`UPDATE ${this.table} SET ? WHERE id = ?`, [request.body, request.params.id])
@@ -112,7 +152,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
       let l = []
       sortStr = ' ORDER BY '
       for (let k in sort) {
-        l.push(k + ' ' + (sort[k] === '1' ? 'DESC' : 'ASC'))
+        l.push(k + ' ' + (Number(sort[k]) === 1 ? 'DESC' : 'ASC'))
       }
       sortStr = sortStr + l.join(',')
     }

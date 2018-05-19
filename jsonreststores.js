@@ -42,6 +42,8 @@ var Store = class {
 
   static get artificialDelay () { return 0 } // Artificial delay
 
+  static get beforeIdField () { return 'beforeId' }
+
   // ****************************************************
   // *** ATTRIBUTES THAT DEFINE STORE'S BEHAVIOUR
   // ****************************************************
@@ -52,7 +54,6 @@ var Store = class {
   static get handleGetQuery () { return false }
   static get handleDelete () { return false }
 
-  static get positioning () { return false } // If set, will make fields re-positionable
   static get defaultSort () { return null } // If set, it will be applied to all getQuery calls
   static get defaultLimitOnQueries () { return 50 } //  Max number of records returned by default
 
@@ -182,9 +183,12 @@ var Store = class {
     self.handleGet = Self.handleGet
     self.handleGetQuery = Self.handleGetQuery
     self.handleDelete = Self.handleDelete
-    self.positioning = Self.positioning
     self.defaultSort = Self.defaultSort
     self.defaultLimitOnQueries = Self.defaultLimitOnQueries
+
+    this.beforeIdField = this.constructor.beforeIdField
+    this.positionField = this.constructor.positionField
+
 
     // This will contain the single fields
     self._singleFields = {}
