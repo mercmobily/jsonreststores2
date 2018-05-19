@@ -15,11 +15,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     this.connection = this.constructor.connection
     this.connection.queryP = promisify(this.connection.query)
     this.table = this.constructor.table
-    this.beforeIdField = this.constructor.beforeIdField
-    this.positionField = this.constructor.positionField
   }
-
-  static get beforeIdField () { return 'beforeId' }
 
   static get connection () {
     return null
