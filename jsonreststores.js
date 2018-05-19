@@ -189,7 +189,6 @@ var Store = class {
     this.beforeIdField = this.constructor.beforeIdField
     this.positionField = this.constructor.positionField
 
-
     // This will contain the single fields
     self._singleFields = {}
 
