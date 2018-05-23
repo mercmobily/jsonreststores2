@@ -432,7 +432,7 @@ var Store = class {
       // the single-field put is supposed to only ever be used on existing
       // records
       if (request.options.field) {
-        if (errors.length) throw new Store.UnprocessableEntityError('Field update only allowed on existing records')
+        throw new Store.UnprocessableEntityError('Field update only allowed on existing records')
       }
 
       // Execute actual DB operation

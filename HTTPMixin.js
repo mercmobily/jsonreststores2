@@ -32,6 +32,7 @@ var HTTPMixin = (superclass) => class extends superclass {
     this.uploadFields = this.constructor.uploadFields
     this.uploadLimits = this.constructor.uploadLimits
     this.chainerrors = this.constructor.chainerrors
+    this.uploadFilter = this.constructor.uploadFilter
   }
 
   // Sends the information out, for HTTP calls.
@@ -134,7 +135,10 @@ var HTTPMixin = (superclass) => class extends superclass {
       uploadMiddleware = function (req, res, next) {
         upload(req, res, function (err) {
           if (err) return self._uploadErrorProcessor(err, next)
-
+          
+          if (req.files && Array.isArray(req.files)) {
+            req.files.forEach((f) => { req.body[f.fieldname] = f.filename })
+          }
           next(null)
         })
       }
@@ -155,7 +159,7 @@ var HTTPMixin = (superclass) => class extends superclass {
     }
 
     url = url.replace(/:\w*$/, '')
-    console.log('URL:', url)
+    // console.log('URL:', url)
 
     // Make entries in "app", so that the application
     // will give the right responses
@@ -213,7 +217,7 @@ var HTTPMixin = (superclass) => class extends superclass {
 
     // If there is a function defined as fileName, use it
     if (typeof (storeAttributes.fileName) === 'function') {
-      return cb(null, storeAttributes.fileName.apply(this, [].slice.call(arguments)))
+      return storeAttributes.fileName.apply(this, [].slice.call(arguments))
     // If not, just use the stock function that mixes the record ID with the fieldName in one string
     } else {
       // If the ID is there (that's the case with a PUT), then use it. Otherwise,
