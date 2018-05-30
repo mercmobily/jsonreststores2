@@ -137,7 +137,9 @@ var HTTPMixin = (superclass) => class extends superclass {
           if (err) return self._uploadErrorProcessor(err, next)
 
           if (req.files && Array.isArray(req.files)) {
-            req.files.forEach((f) => { req.body[f.fieldname] = f.filename })
+            req.files.forEach((f) => {
+              req.body[f.fieldname] = f.filename
+            })
           }
           next(null)
         })

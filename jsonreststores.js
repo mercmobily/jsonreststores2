@@ -383,7 +383,7 @@ var Store = class {
     request.doc = null
 
     // Check that the method is implemented
-    if (!self.handlePut && request.remote) throw new Store.NotImplementedError()
+    if (!self.handlePut && !request.options.field && request.remote) throw new Store.NotImplementedError()
 
     // Check the IDs
     await self.beforeCheckParamIds(request, 'put')
