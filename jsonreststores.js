@@ -42,7 +42,8 @@ var Store = class {
 
   static get artificialDelay () { return 0 } // Artificial delay
 
-  static get beforeIdField () { return 'beforeId' }
+  static get beforeIdField () { return 'beforeId' } // Virtual field to place elements
+  static get positionFilter () { return [] } // List of fields that will determine the subset
 
   // ****************************************************
   // *** ATTRIBUTES THAT DEFINE STORE'S BEHAVIOUR
@@ -188,6 +189,7 @@ var Store = class {
 
     this.beforeIdField = this.constructor.beforeIdField
     this.positionField = this.constructor.positionField
+    this.positionFilter = this.constructor.positionFilter
 
     // This will contain the single fields
     self._singleFields = {}

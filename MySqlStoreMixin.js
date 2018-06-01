@@ -74,7 +74,21 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     if (typeof this.positionField === 'undefined') return
 
     var last = async () => {
-      request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table}`))[0].maxPosition + 1
+      request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table} WHERE ${wherePositionFilter}`, positionQueryArgs))[0].maxPosition + 1
+    }
+
+    var positionQueryArgs = []
+    var wherePositionFilter
+    if (this.positionFilter.length === 0) wherePositionFilter = '1 = 1'
+    else {
+      let source = request.doc || request.body
+      let r = []
+      for (let k of this.positionFilter) {
+        if (typeof source[k] === 'undefined') throw new Error(`Field must have a value as it's a positional one: ${k}`)
+        r.push(`${k} = ?`)
+        positionQueryArgs.push(source[k])
+      }
+      wherePositionFilter = ' ' + r.join('AND') + ' '
     }
 
     // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
@@ -92,11 +106,11 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     // number       => valid record   => place it before that record, overwriting previous positio
     //                 INvalid record => place it last
     } else {
-      var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ?`, request.beforeId))[0]
+      var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ? AND ${wherePositionFilter}`, [ request.beforeId, ...positionQueryArgs ]))[0]
 
       // number       => valid record   => place it before that record, "making space"
       if (beforeIdItem) {
-        await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 where ${this.positionField} >= ? ORDER BY position DESC`, beforeIdItem[this.positionField] || 0)
+        await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 WHERE ${this.positionField} >= ?  AND ${wherePositionFilter} ORDER BY position DESC`, [ beforeIdItem[this.positionField] || 0, ...positionQueryArgs ])
         request.body[this.positionField] = beforeIdItem[this.positionField]
       //              => INvalid record => place it last
       } else {
