@@ -64,28 +64,43 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
 
-  // Also, body[positionField] is deleted as it's managed directly by the mix
+  // Make sure the positionField is updated depending on beforeID passed:
+  // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
+  // null         => place it last
+  // number       => valid record   => place it before that record, "making space"
+  //              => INvalid record => place it last
   async _calculatePosition (request) {
     // No position field: exit right away
     if (typeof this.positionField === 'undefined') return
 
-    if (request.beforeId) {
-      var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ?`, request.beforeId))[0]
+    var last = async () => {
+      request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table}`))[0].maxPosition + 1
     }
 
-    // a valid beforeId (pointing to an existing item) always wins
-    if (beforeIdItem) {
-      await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 where ${this.positionField} >= ? ORDER BY position DESC`, beforeIdItem[this.positionField] || 0)
-      request.body[this.positionField] = beforeIdItem[this.positionField]
-
-    // No valid beforeId. Position will be either kept the same, or item will be added at the end
-    } else {
-      // IF it's an existing record with an existing position, keep the existing position
+    // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
+    if (typeof request.beforeId === 'undefined') {
       if (request.doc && typeof request.doc[this.positionField] !== 'undefined') {
         request.body[this.positionField] = request.doc[this.positionField]
-      // Otherwise, add at the end
       } else {
-        request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table}`))[0].maxPosition + 1
+        await last()
+      }
+
+    // null         => place it last
+    } else if (request.beforeId === null) {
+      await last()
+
+    // number       => valid record   => place it before that record, overwriting previous positio
+    //                 INvalid record => place it last
+    } else {
+      var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ?`, request.beforeId))[0]
+
+      // number       => valid record   => place it before that record, "making space"
+      if (beforeIdItem) {
+        await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 where ${this.positionField} >= ? ORDER BY position DESC`, beforeIdItem[this.positionField] || 0)
+        request.body[this.positionField] = beforeIdItem[this.positionField]
+      //              => INvalid record => place it last
+      } else {
+        await last()
       }
     }
   }
