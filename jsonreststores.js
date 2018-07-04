@@ -397,7 +397,7 @@ var Store = class {
 
     // Run validation, throw an error if it fails
     await self.beforeValidate(request, 'put')
-    var { validatedObject, errors } = await self.schema.validate(request.body, { onlyObjectValues: !!request.options.field })
+    var { validatedObject, errors } = await self.schema.validate(request.body, { onlyObjectValues: !!request.options.field || !!request.options.partial })
     request.bodyBeforeValidation = request.body
     request.body = validatedObject
     if (errors.length) throw new Store.UnprocessableEntityError({ errors: errors })

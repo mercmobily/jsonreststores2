@@ -55,13 +55,14 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
     return super.beforeValidate(request, method)
   }
+
   // Input: request.params
   // Output: an object
   async implementFetch (request) {
     this._checkVars()
 
     var fields = this._selectFields(`${this.table}.`)
-    return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
+    return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${this.table}.id = ?`, request.params.id))[0]
   }
 
   // Make sure the positionField is updated depending on beforeID passed:
@@ -84,11 +85,16 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
       let source = request.doc || request.body
       let r = []
       for (let k of this.positionFilter) {
-        if (typeof source[k] === 'undefined') throw new Error(`Field must have a value as it's a positional one: ${k}`)
-        r.push(`${k} = ?`)
-        positionQueryArgs.push(source[k])
+        // let checkFieldIsSet = true
+        if (source[k] === null || typeof source[k] === 'undefined') {
+          r.push(`(${k} is NULL)`)
+        } else {
+          r.push(`(${k} = ?)`)
+          positionQueryArgs.push(source[k])
+        }
+        // if (checkFieldIsSet && typeof source[k] === 'undefined') throw new Error(`Field must have a value as it's a positional one: ${k}`)
       }
-      wherePositionFilter = ' ' + r.join('AND') + ' '
+      wherePositionFilter = ' ' + r.join(' AND ') + ' '
     }
 
     // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
@@ -106,11 +112,11 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     // number       => valid record   => place it before that record, overwriting previous positio
     //                 INvalid record => place it last
     } else {
-      var beforeIdItem = (await this.connection.queryP(`SELECT id,${this.positionField} FROM ${this.table} WHERE id = ? AND ${wherePositionFilter}`, [ request.beforeId, ...positionQueryArgs ]))[0]
+      var beforeIdItem = (await this.connection.queryP(`SELECT ${this.table}.id,${this.positionField} FROM ${this.table} WHERE ${this.table}.id = ? AND ${wherePositionFilter}`, [ request.beforeId, ...positionQueryArgs ]))[0]
 
       // number       => valid record   => place it before that record, "making space"
       if (beforeIdItem) {
-        await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 WHERE ${this.positionField} >= ?  AND ${wherePositionFilter} ORDER BY position DESC`, [ beforeIdItem[this.positionField] || 0, ...positionQueryArgs ])
+        await this.connection.queryP(`UPDATE ${this.table} SET ${this.positionField} = ${this.positionField} + 1 WHERE ${this.positionField} >= ?  AND ${wherePositionFilter} ORDER BY ${this.positionField} DESC`, [ beforeIdItem[this.positionField] || 0, ...positionQueryArgs ])
         request.body[this.positionField] = beforeIdItem[this.positionField]
       //              => INvalid record => place it last
       } else {
@@ -192,6 +198,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   // Output: { dataArray, total, grandTotal }
   async implementQuery (request) {
     this._checkVars()
+
+    request.options.sort = request.options.sort || this.defaultSort || {}
+    request.options.ranges = request.options.ranges || { skip: 0, limit: this.defaultLimitOnQueries }
 
     let args = []
     var whereStr = ' 1=1'
