@@ -223,6 +223,14 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
     return { data: result, grandTotal: grandTotal }
   }
+
+  cleanup (record) {
+    var r = Object.assign({}, record)
+    for (var k in r) {
+      if (typeof this.schema.structure[k] === 'undefined') delete r[k]
+    }
+    return r
+  }
 }
 
 exports = module.exports = MySqlStoreMixin
