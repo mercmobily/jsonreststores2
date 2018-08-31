@@ -181,7 +181,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return { args, whereStr }
   }
 
-  makeSortString (sort) {
+  makeSortString (sort = {}) {
     var sortStr = ''
     if (Object.keys(sort).length) {
       let l = []
