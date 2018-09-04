@@ -127,6 +127,7 @@ var Store = class {
 
   async beforeDbOperationFetchOne (request, method) { }
   async beforeDbOperationQuery (request, method) { }
+  async beforeDbOperationWrite (request, method) { }
   async beforeDbOperationInsert (request, method) { }
   async beforeDbOperationUpdate (request, method) { }
   async beforeDbOperationDelete (request, method) { }
@@ -368,6 +369,8 @@ var Store = class {
       await self.afterCheckPermissions(request, 'post')
     }
 
+    await self.beforeDbOperationWrite(request, 'post')
+
     // Execute actual DB operation
     await self.beforeDbOperationInsert(request, 'post')
     request.doc = await self.implementInsert(request, 'post') || null
@@ -427,6 +430,8 @@ var Store = class {
         throw new self.PreconditionFailedError()
       }
     }
+
+    await self.beforeDbOperationWrite(request, 'put')
 
     if (!request.doc) {
       //
@@ -558,6 +563,8 @@ var Store = class {
       if (!granted) throw new Store.ForbiddenError(message)
       await self.afterCheckPermissions(request, 'delete')
     }
+
+    await self.beforeDbOperationWrite(request, 'put')
 
     // Execute actual DB operation
     await self.beforeDbOperationDelete(request, 'delete')

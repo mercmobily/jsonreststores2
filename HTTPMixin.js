@@ -449,7 +449,7 @@ var HTTPMixin = (superclass) => class extends superclass {
   // Turns an error into an UnprocessableEntityError
   _uploadErrorProcessor (err, next) {
     var UnprocessableEntityError = this.constructor.UnprocessableEntityError
-    var ReturnedError = new UnprocessableEntityError((err.field ? err.field : '') + ': ' + err.message)
+    var ReturnedError = new UnprocessableEntityError(err.message)
     ReturnedError.OriginalError = err
     return next(ReturnedError)
   }
