@@ -62,7 +62,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     this._checkVars()
 
     var fields = this._selectFields(`${this.table}.`)
-    return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${this.table}.id = ?`, request.params.id))[0]
+    return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${this.table}.${this.idProperty} = ?`, request.params[this.idProperty]))[0]
   }
 
   // Make sure the positionField is updated depending on beforeID passed:
@@ -71,11 +71,24 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   // number       => valid record   => place it before that record, "making space"
   //              => INvalid record => place it last
   async _calculatePosition (request) {
+
     // No position field: exit right away
     if (typeof this.positionField === 'undefined') return
 
     var last = async () => {
       request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table} WHERE ${wherePositionFilter}`, positionQueryArgs))[0].maxPosition + 1
+    }
+
+    // Work really hard to find out what the previous position was
+    // Note: request.doc might be empty even in case of update in case
+    // of usage via API (implementUpdate() with dummy/incomplete request)
+    var prevPosition
+    if (request.doc) prevPosition = request.doc[this.positionField]
+    else {
+      if (request.params && typeof request.params[this.idProperty] !== 'undefined'){
+        var r = (await this.connection.queryP(`SELECT ${this.positionField} FROM ${this.table} WHERE ${this.table}.${this.idProperty} = ?`, [ request.params[this.idProperty] ]))[0]
+        if (r) prevPosition = r[this.positionField]
+      }
     }
 
     var positionQueryArgs = []
@@ -99,11 +112,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
     // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
     if (typeof request.beforeId === 'undefined') {
-      if (request.doc && typeof request.doc[this.positionField] !== 'undefined') {
-        request.body[this.positionField] = request.doc[this.positionField]
-      } else {
-        await last()
-      }
+      if (! prevPosition) await last()
 
     // null         => place it last
     } else if (request.beforeId === null) {
@@ -112,7 +121,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     // number       => valid record   => place it before that record, overwriting previous positio
     //                 INvalid record => place it last
     } else {
-      var beforeIdItem = (await this.connection.queryP(`SELECT ${this.table}.id,${this.positionField} FROM ${this.table} WHERE ${this.table}.id = ? AND ${wherePositionFilter}`, [ request.beforeId, ...positionQueryArgs ]))[0]
+      var beforeIdItem = (await this.connection.queryP(`SELECT ${this.table}.${this.idProperty}, ${this.positionField} FROM ${this.table} WHERE ${this.table}.${this.idProperty} = ? AND ${wherePositionFilter}`, [ request.beforeId, ...positionQueryArgs ]))[0]
 
       // number       => valid record   => place it before that record, "making space"
       if (beforeIdItem) {
@@ -134,7 +143,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
     // var fields = this._selectFields(`${this.table}.`)
     let insertResults = await this.connection.queryP(`INSERT INTO ${this.table} SET ?`, request.body)
-    var bogusRequest = { session: request.session, params: { id: insertResults.insertId } }
+    var bogusRequest = { session: request.session, params: { [this.idProperty]: insertResults.insertId } }
     return this.implementFetch(bogusRequest)
   }
 
@@ -150,9 +159,9 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     await this._calculatePosition(request)
 
     // var fields = this._selectFields(`${this.table}.`)
-    await this.connection.queryP(`UPDATE ${this.table} SET ? WHERE id = ?`, [request.body, request.params.id])
+    await this.connection.queryP(`UPDATE ${this.table} SET ? WHERE ${this.idProperty} = ?`, [request.body, request.params[this.idProperty]])
 
-    var bogusRequest = { session: request.session, params: { id: request.params.id } }
+    var bogusRequest = { session: request.session, params: { [this.idProperty]: request.params.id } }
     return this.implementFetch(bogusRequest)
     // return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
   }
@@ -164,8 +173,8 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
     var fields = this._selectFields(`${this.table}.`)
 
-    let record = (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE id = ?`, request.params.id))[0]
-    await this.connection.queryP(`DELETE FROM ${this.table} WHERE id = ?`, [request.params.id])
+    let record = (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${this.idProperty} = ?`, request.params[this.idProperty]))[0]
+    await this.connection.queryP(`DELETE FROM ${this.table} WHERE ${this.idProperty} = ?`, [request.params[this.idProperty]])
     return record
   }
 
