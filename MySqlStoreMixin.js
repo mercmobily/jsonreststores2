@@ -72,6 +72,8 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   //              => INvalid record => place it last
   async _calculatePosition (request) {
 
+    debugger
+
     // No position field: exit right away
     if (typeof this.positionField === 'undefined') return
 
@@ -113,6 +115,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
     if (typeof request.beforeId === 'undefined') {
       if (! prevPosition) await last()
+      else request.body[this.positionField] = prevPosition
 
     // null         => place it last
     } else if (request.beforeId === null) {
