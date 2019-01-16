@@ -39,6 +39,7 @@ var Store = class {
 
   static get storeName () { return null }
   static get _singleFields () { return {} } // Fields that can be updated singularly
+  static get emptyAsNull () { return true } // Fields that can be updated singularly
 
   static get artificialDelay () { return 0 } // Artificial delay
 
@@ -57,6 +58,9 @@ var Store = class {
 
   static get defaultSort () { return null } // If set, it will be applied to all getQuery calls
   static get defaultLimitOnQueries () { return 50 } //  Max number of records returned by default
+
+
+  static get partial () { return false } //  A write will only affects the passed fields, not the whole record
 
   // Default error objects which might be used by this module.
   static get BadRequestError () { return e.BadRequestError }
@@ -125,9 +129,11 @@ var Store = class {
   async beforeValidate (request, method) { }
   async afterValidate (request, method) { }
 
+  async beforeDbOperationWrite (request, method) { }
+  async afterDbOperationWrite (request, method) { }
+
   async beforeDbOperationFetchOne (request, method) { }
   async beforeDbOperationQuery (request, method) { }
-  async beforeDbOperationWrite (request, method) { }
   async beforeDbOperationInsert (request, method) { }
   async beforeDbOperationUpdate (request, method) { }
   async beforeDbOperationDelete (request, method) { }
@@ -179,6 +185,7 @@ var Store = class {
     self.paramIds = Self.paramIds
     self.searchSchema = Self.searchSchema
     self.storeName = Self.storeName
+    self.emptyAsNull = Self.emptyAsNull
 
     self.handlePost = Self.handlePost
     self.handlePut = Self.handlePut
@@ -187,6 +194,7 @@ var Store = class {
     self.handleDelete = Self.handleDelete
     self.defaultSort = Self.defaultSort
     self.defaultLimitOnQueries = Self.defaultLimitOnQueries
+    self.partial = Self.partial
 
     this.beforeIdField = this.constructor.beforeIdField
     this.positionField = this.constructor.positionField
@@ -339,8 +347,9 @@ var Store = class {
   async _makePost (request) {
     var self = this
 
-    // This is the 'doc' as such
-    request.doc = null
+    // Default request.doc so that the hooks will have it
+    // for putNew and post operations too (although it will be empty)
+    request.doc = {}
 
     // Check that the method is implemented
     if (!self.handlePost && request.remote) throw new Store.NotImplementedError()
@@ -355,7 +364,7 @@ var Store = class {
 
     // Run validation, throw an error if it fails
     await self.beforeValidate(request, 'post')
-    var { validatedObject, errors } = await self.schema.validate(request.body, { skipFields: [ self.idProperty ] })
+    var { validatedObject, errors } = await self.schema.validate(request.body, { emptyAsNull: !!self.emptyAsNull, skipFields: [ self.idProperty ] })
     request.bodyBeforeValidation = request.body
     request.body = validatedObject
     if (errors.length) throw new Store.UnprocessableEntityError({ errors: errors })
@@ -384,9 +393,6 @@ var Store = class {
   async _makePut (request) {
     var self = this
 
-    // This is the 'doc' as such
-    request.doc = null
-
     // Check that the method is implemented
     if (!self.handlePut && !request.options.field && request.remote) throw new Store.NotImplementedError()
 
@@ -400,7 +406,10 @@ var Store = class {
 
     // Run validation, throw an error if it fails
     await self.beforeValidate(request, 'put')
-    var { validatedObject, errors } = await self.schema.validate(request.body, { onlyObjectValues: !!request.options.field || !!request.options.partial })
+    var { validatedObject, errors } = await self.schema.validate(request.body, {
+      emptyAsNull: self.emptyAsNull,
+      onlyObjectValues: request.options.field || request.options.partial || self.partial
+    })
     request.bodyBeforeValidation = request.body
     request.body = validatedObject
     if (errors.length) throw new Store.UnprocessableEntityError({ errors: errors })
@@ -413,6 +422,10 @@ var Store = class {
 
     request.putNew = !request.doc
     request.putExisting = !!request.doc
+
+    // Default request.doc so that the hooks will have it
+    // for putNew and post operations too (although it will be empty)
+    if (request.putNew) request.doc = {}
 
     // Check permissions
     if (request.remote) {
@@ -431,9 +444,10 @@ var Store = class {
       }
     }
 
+    // Run the generic "beforeDbOperationWrite" hook
     await self.beforeDbOperationWrite(request, 'put')
 
-    if (!request.doc) {
+    if (request.putNew) {
       //
       // It cannot be a new doc and have "single field" set, since
       // the single-field put is supposed to only ever be used on existing
@@ -452,6 +466,9 @@ var Store = class {
       request.doc = await self.implementUpdate(request, 'put') || null
       await self.afterDbOperationUpdate(request, 'put')
     }
+
+    // Run the generic "afterDbOperationWrite" hook
+    await self.afterDbOperationWrite(request, 'put')
 
     // Send over to the client
     await self.beforeReturn(request, 'put')
