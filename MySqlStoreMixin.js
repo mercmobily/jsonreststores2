@@ -71,9 +71,6 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   // number       => valid record   => place it before that record, "making space"
   //              => INvalid record => place it last
   async _calculatePosition (request) {
-
-    debugger
-
     // No position field: exit right away
     if (typeof this.positionField === 'undefined') return
 

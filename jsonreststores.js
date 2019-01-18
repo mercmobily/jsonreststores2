@@ -347,9 +347,9 @@ var Store = class {
   async _makePost (request) {
     var self = this
 
-    // Default request.doc so that the hooks will have it
-    // for putNew and post operations too (although it will be empty)
-    request.doc = {}
+    // Default request.doc to null; it will only have a real value
+    // very late in the game, after the insert
+    request.doc = null
 
     // Check that the method is implemented
     if (!self.handlePost && request.remote) throw new Store.NotImplementedError()
@@ -396,6 +396,10 @@ var Store = class {
     // Check that the method is implemented
     if (!self.handlePut && !request.options.field && request.remote) throw new Store.NotImplementedError()
 
+    // Default request.doc to null; it will only have a real value once
+    // a record is loaded (if it is)
+    if (request.putNew) request.doc = null
+
     // Check the IDs
     await self.beforeCheckParamIds(request, 'put')
     await self._checkParamIds(request)
@@ -423,9 +427,6 @@ var Store = class {
     request.putNew = !request.doc
     request.putExisting = !!request.doc
 
-    // Default request.doc so that the hooks will have it
-    // for putNew and post operations too (although it will be empty)
-    if (request.putNew) request.doc = {}
 
     // Check permissions
     if (request.remote) {
