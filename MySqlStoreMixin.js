@@ -67,6 +67,7 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
 
   _positionFiltersFieldsSame (request) {
+    if (!request.doc) return true
     for (let k of this.positionFilter) {
       if (request.body[k] !== request.doc[k]) return false
     }
