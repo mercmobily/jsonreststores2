@@ -65,15 +65,26 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     return (await this.connection.queryP(`SELECT ${fields} FROM ${this.table} WHERE ${this.table}.${this.idProperty} = ?`, request.params[this.idProperty]))[0]
   }
 
+
+  _positionFiltersFieldsSame (request) {
+    for (let k of this.positionFilter) {
+      if (request.body[k] !== request.doc[k]) return false
+    }
+    return true
+  }
+
   // Make sure the positionField is updated depending on beforeID passed:
   // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
   // null         => place it last
   // number       => valid record   => place it before that record, "making space"
   //              => INvalid record => place it last
   async _calculatePosition (request) {
+
     // No position field: exit right away
     if (typeof this.positionField === 'undefined') return
 
+    // This function will be called a lot in case the record is to be placed last.
+    // It has side-effects (it changes request.body AND it changes the DB)
     var last = async () => {
       request.body[this.positionField] = (await this.connection.queryP(`SELECT max(${this.positionField}) as maxPosition FROM ${this.table} WHERE ${wherePositionFilter}`, positionQueryArgs))[0].maxPosition + 1
     }
@@ -109,8 +120,14 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
       wherePositionFilter = ' ' + r.join(' AND ') + ' '
     }
 
+    // If ANY of the positionFilters have changed, it will go
+    // last, end of story (since "position 2" might mean something different)
+    if (!this._positionFiltersFieldsSame(request) ){
+      await last()
+    }
+
     // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
-    if (typeof request.beforeId === 'undefined') {
+    else if (typeof request.beforeId === 'undefined') {
       if (! prevPosition) await last()
       else request.body[this.positionField] = prevPosition
 
@@ -118,8 +135,8 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     } else if (request.beforeId === null) {
       await last()
 
-    // number       => valid record   => place it before that record, overwriting previous positio
-    //                 INvalid record => place it last
+    // number       => valid record   => place it before that record, overwriting previous position
+    //                 Invalid record => place it last
     } else {
       var beforeIdItem = (await this.connection.queryP(`SELECT ${this.table}.${this.idProperty}, ${this.positionField} FROM ${this.table} WHERE ${this.table}.${this.idProperty} = ? AND ${wherePositionFilter}`, [ request.beforeId, ...positionQueryArgs ]))[0]
 
