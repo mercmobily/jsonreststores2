@@ -67,13 +67,14 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
 
   _positionFiltersFieldsSame (request) {
-    if (!request.doc) return true
     for (let k of this.positionFilter) {
-      if (request.body[k] !== request.doc[k]) return false
-    }
+      if (typeof request.body[k] !== 'undefined' && typeof request.doc[k] !== 'undefined') {
+          if (request.body[k] != request.doc[k]) return false
+        }
+      }
     return true
   }
-
+  
   // Make sure the positionField is updated depending on beforeID passed:
   // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
   // null         => place it last
