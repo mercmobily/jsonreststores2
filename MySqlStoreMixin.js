@@ -67,14 +67,22 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
 
 
   _positionFiltersFieldsSame (request) {
+
+    // If there is no original request.doc, there is nothing to check
+    if (!request.doc) return true
+
+    // Check whether the positionFilter fields have changed.
+    // Note that it's a soft `!=` comparison since the way data is stored on the DB
+    // might be different to what is passed. This assumes that DB and JS will have
+    // compatible results
     for (let k of this.positionFilter) {
       if (typeof request.body[k] !== 'undefined' && typeof request.doc[k] !== 'undefined') {
-          if (request.body[k] != request.doc[k]) return false
-        }
+        if (request.body[k] != request.doc[k]) return false
       }
+    }
     return true
   }
-  
+
   // Make sure the positionField is updated depending on beforeID passed:
   // undefined    => leave it where it was (if it had a position) or place it last (if it didn't have a position)
   // null         => place it last
