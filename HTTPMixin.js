@@ -64,7 +64,7 @@ var HTTPMixin = (superclass) => class extends superclass {
         break
 
       case 'delete':
-        status = 204
+        status = 200
         break
 
       case 'error':
