@@ -210,10 +210,22 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
     for (let k in ch) {
       // Add fields that are in the searchSchema
       if (this.searchSchema.structure[k] && this.schema.structure[k] && String(ch[k]) !== '') {
-        args.push(ch[k])
+        if (ch[k] === null){
+          whereStr = whereStr + ` AND ${prefix}${k} IS NULL`
+         } else {
+          args.push(ch[k])
+          whereStr = whereStr + ` AND ${prefix}${k} = ?`
+        }
+      }
+    }
+
+    for (let k in request.params) {
+      if (this.schema.structure[k] && String(request.params[k]) !== '') {
+        args.push(request.params[k])
         whereStr = whereStr + ` AND ${prefix}${k} = ?`
       }
     }
+
     return { args, whereStr }
   }
 
