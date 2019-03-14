@@ -385,6 +385,9 @@ var Store = class {
     request.doc = await self.implementInsert(request, 'post') || null
     await self.afterDbOperationInsert(request, 'post')
 
+    // Run the generic "afterDbOperationWrite" hook
+    await self.afterDbOperationWrite(request, 'post')
+
     // Send over to the client
     await self.beforeReturn(request, 'post')
     return request.doc
@@ -588,6 +591,9 @@ var Store = class {
     await self.beforeDbOperationDelete(request, 'delete')
     await self.implementDelete(request, 'delete')
     await self.afterDbOperationDelete(request, 'delete')
+
+    // Run the generic "afterDbOperationWrite" hook
+    await  self.afterDbOperationWrite(request, 'delete')
 
     // Send over to the client
     await self.beforeReturn(request, 'delete')
