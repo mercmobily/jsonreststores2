@@ -208,21 +208,23 @@ var MySqlStoreMixin = (superclass) => class extends superclass {
   defaultConditions (request, args, whereStr, prefix = '') {
     var ch = request.options.conditionsHash
     for (let k in ch) {
+      var kEscaped = `\`${k}\``
       // Add fields that are in the searchSchema
       if (this.searchSchema.structure[k] && this.schema.structure[k] && String(ch[k]) !== '') {
         if (ch[k] === null){
-          whereStr = whereStr + ` AND ${prefix}${k} IS NULL`
+          whereStr = whereStr + ` AND ${prefix}${kEscaped} IS NULL`
          } else {
           args.push(ch[k])
-          whereStr = whereStr + ` AND ${prefix}${k} = ?`
+          whereStr = whereStr + ` AND ${prefix}${kEscaped} = ?`
         }
       }
     }
 
     for (let k in request.params) {
+      var kEscaped = `\`${k}\``
       if (this.schema.structure[k] && String(request.params[k]) !== '') {
         args.push(request.params[k])
-        whereStr = whereStr + ` AND ${prefix}${k} = ?`
+        whereStr = whereStr + ` AND ${prefix}${kEscaped} = ?`
       }
     }
 
